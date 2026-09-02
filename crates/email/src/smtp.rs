@@ -23,9 +23,16 @@ impl SmtpClient {
         tracing::instrument(skip(config), fields(host = config.host, username = config.username, from_address = config.from_address), err(Debug))
     )]
     pub fn create(config: SmtpConfig) -> Result<Self, SmtpClientError> {
-        let transport = AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)?
-            .credentials(Credentials::new(config.username, config.password))
-            .build();
+        let mut builder = if config.use_tls {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)?
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
+        };
+        if !config.username.is_empty() {
+            builder = builder.credentials(Credentials::new(config.username, config.password));
+        }
+
+        let transport = builder.port(config.port).build();
 
         let from = config.from_address.parse::<Mailbox>()?;
 
@@ -56,6 +63,8 @@ impl EmailClient for SmtpClient {
 #[derive(Debug, Clone)]
 pub struct SmtpConfig {
     pub host: String,
+    pub port: u16,
+    pub use_tls: bool,
     pub username: String,
     pub password: String,
     pub from_address: String,
