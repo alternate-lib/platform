@@ -31,7 +31,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "reqwest 0.13.4",
  "rust-s3",
+ "testcontainers",
  "thiserror",
  "tokio",
  "tracing",
