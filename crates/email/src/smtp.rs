@@ -60,14 +60,85 @@ impl EmailClient for SmtpClient {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmtpConfig {
-    pub host: String,
-    pub port: u16,
-    pub use_tls: bool,
-    pub username: String,
-    pub password: String,
-    pub from_address: String,
+    host: String,
+    port: u16,
+    use_tls: bool,
+    username: String,
+    password: String,
+    from_address: String,
+}
+
+impl SmtpConfig {
+    pub fn builder() -> SmtpConfigBuilder {
+        SmtpConfigBuilder::default()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SmtpConfigBuilder {
+    host: Option<String>,
+    port: Option<u16>,
+    use_tls: Option<bool>,
+    username: Option<String>,
+    password: Option<String>,
+    from_address: Option<String>,
+}
+
+impl SmtpConfigBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn host(mut self, host: impl Into<String>) -> Self {
+        self.host = Some(host.into());
+        self
+    }
+
+    #[must_use]
+    pub fn port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+
+    #[must_use]
+    pub fn use_tls(mut self, use_tls: bool) -> Self {
+        self.use_tls = Some(use_tls);
+        self
+    }
+
+    #[must_use]
+    pub fn username(mut self, username: impl Into<String>) -> Self {
+        self.username = Some(username.into());
+        self
+    }
+
+    #[must_use]
+    pub fn password(mut self, password: impl Into<String>) -> Self {
+        self.password = Some(password.into());
+        self
+    }
+
+    #[must_use]
+    pub fn from_address(mut self, from_address: impl Into<String>) -> Self {
+        self.from_address = Some(from_address.into());
+        self
+    }
+
+    pub fn build(self) -> Result<SmtpConfig, SmtpConfigError> {
+        Ok(SmtpConfig {
+            host: self.host.ok_or(SmtpConfigError::MissingField("host"))?,
+            port: self.port.unwrap_or(25),
+            use_tls: self.use_tls.unwrap_or(true),
+            username: self.username.unwrap_or_default(),
+            password: self.password.unwrap_or_default(),
+            from_address: self
+                .from_address
+                .ok_or(SmtpConfigError::MissingField("from_address"))?,
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,4 +151,65 @@ pub enum SmtpClientError {
 
     #[error(transparent)]
     Client(#[from] TransportError),
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum SmtpConfigError {
+    #[error("missing SMTP config value: {0}")]
+    MissingField(&'static str),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SmtpConfig, SmtpConfigError};
+
+    #[test]
+    fn builder_uses_sensible_defaults() {
+        let config = SmtpConfig::builder()
+            .host("smtp.example.test")
+            .from_address("sender@example.test")
+            .build()
+            .unwrap();
+
+        assert_eq!(config.host, "smtp.example.test");
+        assert_eq!(config.port, 25);
+        assert!(config.use_tls);
+        assert_eq!(config.username, "");
+        assert_eq!(config.password, "");
+        assert_eq!(config.from_address, "sender@example.test");
+    }
+
+    #[test]
+    fn builder_accepts_overrides() {
+        let config = SmtpConfig::builder()
+            .host("smtp.example.test")
+            .port(2525)
+            .use_tls(false)
+            .username("user")
+            .password("secret")
+            .from_address("sender@example.test")
+            .build()
+            .unwrap();
+
+        assert_eq!(config.host, "smtp.example.test");
+        assert_eq!(config.port, 2525);
+        assert!(!config.use_tls);
+        assert_eq!(config.username, "user");
+        assert_eq!(config.password, "secret");
+        assert_eq!(config.from_address, "sender@example.test");
+    }
+
+    #[test]
+    fn builder_requires_host_and_from_address() {
+        assert_eq!(
+            SmtpConfig::builder()
+                .from_address("sender@example.test")
+                .build(),
+            Err(SmtpConfigError::MissingField("host"))
+        );
+        assert_eq!(
+            SmtpConfig::builder().host("smtp.example.test").build(),
+            Err(SmtpConfigError::MissingField("from_address"))
+        );
+    }
 }

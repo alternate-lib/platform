@@ -15,14 +15,14 @@ async fn sends_email_to_mailpit() -> Result<(), Box<dyn std::error::Error>> {
     let smtp_server = start_container().await?;
     let http_client = create_http_client(&smtp_server).await;
 
-    let client = SmtpClient::create(SmtpConfig {
-        host: smtp_server.host,
-        port: smtp_server.smtp_port,
-        use_tls: false,
-        username: String::new(),
-        password: String::new(),
-        from_address: "sender@example.test".into(),
-    })?;
+    let client = SmtpClient::create(
+        SmtpConfig::builder()
+            .host(smtp_server.host)
+            .port(smtp_server.smtp_port)
+            .use_tls(false)
+            .from_address("sender@example.test")
+            .build()?,
+    )?;
 
     client
         .send(Email {
