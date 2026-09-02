@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use s3::{
     Bucket, Region,
     creds::{Credentials, error::CredentialsError},
     error::S3Error,
 };
 
-use crate::StorageClient;
+use crate::{StorageClient, StorageClientPresign};
 
 #[derive(Clone)]
 pub struct S3Client {
@@ -12,6 +14,9 @@ pub struct S3Client {
 }
 
 impl S3Client {
+    const MIN_EXPIRY: Duration = Duration::from_secs(1);
+    const MAX_EXPIRY: Duration = Duration::from_hours(24 * 7);
+
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(skip(config), fields(access_key_id = config.access_key_id, region = config.region, endpoint = config.endpoint, bucket = config.bucket), err(Debug))
@@ -41,6 +46,15 @@ impl S3Client {
         }
 
         Ok(Self { bucket })
+    }
+
+    fn get_expiry_secs(expiry: Duration) -> Result<u32, S3ClientError> {
+        if expiry < Self::MIN_EXPIRY || expiry > Self::MAX_EXPIRY {
+            return Err(S3ClientError::ExpiryOutOfRange(expiry));
+        }
+        let expiry_secs = u32::try_from(expiry.as_secs()).unwrap();
+
+        Ok(expiry_secs)
     }
 }
 
@@ -88,6 +102,33 @@ impl StorageClient for S3Client {
         self.bucket.delete_object(path).await?;
 
         Ok(())
+    }
+}
+
+impl StorageClientPresign for S3Client {
+    type Error = S3ClientError;
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "debug", skip(self), err(Debug))
+    )]
+    async fn get_presigned(&self, key: &str, expires_in: Duration) -> Result<String, Self::Error> {
+        let expiry_secs = Self::get_expiry_secs(expires_in)?;
+
+        Ok(self.bucket.presign_get(key, expiry_secs, None).await?)
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "debug", skip(self), err(Debug))
+    )]
+    async fn put_presigned(&self, key: &str, expires_in: Duration) -> Result<String, Self::Error> {
+        let expiry_secs = Self::get_expiry_secs(expires_in)?;
+
+        Ok(self
+            .bucket
+            .presign_put(key, expiry_secs, None, None)
+            .await?)
     }
 }
 
@@ -181,6 +222,9 @@ pub enum S3ClientError {
     #[error("bucket not found with name {0}")]
     BucketNotFound(String),
 
+    #[error("presigned URL expiry {0:?} is not supported")]
+    ExpiryOutOfRange(Duration),
+
     #[error(transparent)]
     Credentials(#[from] CredentialsError),
 
@@ -196,7 +240,9 @@ pub enum S3ConfigError {
 
 #[cfg(test)]
 mod tests {
-    use super::{S3Config, S3ConfigError};
+    use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn builder_accepts_overrides() {
@@ -259,5 +305,39 @@ mod tests {
 
         assert_eq!(config.bucket, "objects");
         assert!(!config.use_path_style);
+    }
+
+    #[test]
+    fn accepts_valid_expiry() {
+        assert_eq!(S3Client::get_expiry_secs(S3Client::MIN_EXPIRY).unwrap(), 1);
+        assert_eq!(
+            S3Client::get_expiry_secs(S3Client::MAX_EXPIRY).unwrap(),
+            7 * 24 * 60 * 60
+        );
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_expiry() {
+        let res = S3Client::get_expiry_secs(
+            S3Client::MIN_EXPIRY
+                .checked_sub(Duration::from_secs(1))
+                .unwrap(),
+        );
+
+        assert!(matches!(
+            res.unwrap_err(),
+            S3ClientError::ExpiryOutOfRange(_)
+        ));
+
+        let res = S3Client::get_expiry_secs(
+            S3Client::MAX_EXPIRY
+                .checked_add(Duration::from_secs(1))
+                .unwrap(),
+        );
+
+        assert!(matches!(
+            res.unwrap_err(),
+            S3ClientError::ExpiryOutOfRange(_)
+        ));
     }
 }
