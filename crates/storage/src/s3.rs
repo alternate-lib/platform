@@ -31,7 +31,7 @@ impl S3Client {
 
         let mut bucket = Bucket::new(&config.bucket, region, credentials)?;
 
-        if config.path_style_enabled {
+        if config.use_path_style {
             bucket.set_path_style();
         }
 
@@ -91,14 +91,89 @@ impl StorageClient for S3Client {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct S3Config {
-    pub access_key_id: String,
-    pub secret_access_key: String,
-    pub region: String,
-    pub endpoint: String,
-    pub bucket: String,
-    pub path_style_enabled: bool,
+    access_key_id: String,
+    secret_access_key: String,
+    region: String,
+    endpoint: String,
+    bucket: String,
+    use_path_style: bool,
+}
+
+impl S3Config {
+    pub fn builder() -> S3ConfigBuilder {
+        S3ConfigBuilder::default()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct S3ConfigBuilder {
+    access_key_id: Option<String>,
+    secret_access_key: Option<String>,
+    region: Option<String>,
+    endpoint: Option<String>,
+    bucket: Option<String>,
+    use_path_style: Option<bool>,
+}
+
+impl S3ConfigBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn access_key_id(mut self, access_key_id: impl Into<String>) -> Self {
+        self.access_key_id = Some(access_key_id.into());
+        self
+    }
+
+    #[must_use]
+    pub fn secret_access_key(mut self, secret_access_key: impl Into<String>) -> Self {
+        self.secret_access_key = Some(secret_access_key.into());
+        self
+    }
+
+    #[must_use]
+    pub fn region(mut self, region: impl Into<String>) -> Self {
+        self.region = Some(region.into());
+        self
+    }
+
+    #[must_use]
+    pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
+    }
+
+    #[must_use]
+    pub fn bucket(mut self, bucket: impl Into<String>) -> Self {
+        self.bucket = Some(bucket.into());
+        self
+    }
+
+    #[must_use]
+    pub fn use_path_style(mut self, use_path_style: bool) -> Self {
+        self.use_path_style = Some(use_path_style);
+        self
+    }
+
+    pub fn build(self) -> Result<S3Config, S3ConfigError> {
+        Ok(S3Config {
+            access_key_id: self
+                .access_key_id
+                .ok_or(S3ConfigError::MissingField("access_key_id"))?,
+            secret_access_key: self
+                .secret_access_key
+                .ok_or(S3ConfigError::MissingField("secret_access_key"))?,
+            region: self.region.ok_or(S3ConfigError::MissingField("region"))?,
+            endpoint: self
+                .endpoint
+                .ok_or(S3ConfigError::MissingField("endpoint"))?,
+            bucket: self.bucket.ok_or(S3ConfigError::MissingField("bucket"))?,
+            use_path_style: self.use_path_style.unwrap_or(false),
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -111,4 +186,78 @@ pub enum S3ClientError {
 
     #[error(transparent)]
     Client(#[from] S3Error),
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum S3ConfigError {
+    #[error("missing S3 config value: {0}")]
+    MissingField(&'static str),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{S3Config, S3ConfigError};
+
+    #[test]
+    fn builder_accepts_overrides() {
+        let config = S3Config::builder()
+            .access_key_id("key")
+            .secret_access_key("secret")
+            .region("us-east-1")
+            .endpoint("http://localhost:9000")
+            .bucket("objects")
+            .use_path_style(true)
+            .build()
+            .unwrap();
+
+        assert_eq!(config.access_key_id, "key");
+        assert_eq!(config.secret_access_key, "secret");
+        assert_eq!(config.region, "us-east-1");
+        assert_eq!(config.endpoint, "http://localhost:9000");
+        assert_eq!(config.bucket, "objects");
+        assert!(config.use_path_style);
+    }
+
+    #[test]
+    fn builder_fails_on_missing_fields() {
+        let mut builder = S3Config::builder();
+
+        assert_eq!(
+            builder.clone().build(),
+            Err(S3ConfigError::MissingField("access_key_id"))
+        );
+
+        builder = builder.access_key_id("key");
+
+        assert_eq!(
+            builder.clone().build(),
+            Err(S3ConfigError::MissingField("secret_access_key"))
+        );
+
+        builder = builder.secret_access_key("secret");
+
+        assert_eq!(
+            builder.clone().build(),
+            Err(S3ConfigError::MissingField("region"))
+        );
+
+        builder = builder.region("us-east-1");
+
+        assert_eq!(
+            builder.clone().build(),
+            Err(S3ConfigError::MissingField("endpoint"))
+        );
+
+        builder = builder.endpoint("http://localhost:9000");
+
+        assert_eq!(
+            builder.clone().build(),
+            Err(S3ConfigError::MissingField("bucket"))
+        );
+
+        let config = builder.bucket("objects").build().unwrap();
+
+        assert_eq!(config.bucket, "objects");
+        assert!(!config.use_path_style);
+    }
 }
