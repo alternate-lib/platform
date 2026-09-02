@@ -1,8 +1,13 @@
 [workspace]
 resolver = "3"
-members = []
+members = ["crates/email"]
 
 [workspace.dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+thiserror = "2.0.20"
+tracing = "0.1.44"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
