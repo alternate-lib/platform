@@ -53,10 +53,10 @@ impl<HC: HttpClientExt, C: Codec> HttpClientExtTyped<C> for HC {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HttpClientTypedError<CodecErr: std::error::Error, HttpErr: std::error::Error> {
+pub enum HttpClientTypedError<CodecErr: std::error::Error, ClientErr: std::error::Error> {
     #[error("codec: {0}")]
     Codec(CodecErr),
 
     #[error(transparent)]
-    Http(#[from] HttpErr),
+    Client(#[from] ClientErr),
 }

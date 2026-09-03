@@ -3,6 +3,8 @@ use http::{Error as HttpError, Method, Request, Response};
 #[cfg(feature = "typed")]
 pub use typed::{HttpClientExtTyped, HttpClientTyped, HttpClientTypedError};
 
+#[cfg(feature = "cache")]
+pub mod cache;
 #[cfg(feature = "reqwest")]
 pub mod reqwest;
 #[cfg(feature = "tower")]
