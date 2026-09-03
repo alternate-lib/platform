@@ -1,6 +1,7 @@
 use std::{fmt::Debug, time::Duration};
 
 use deadpool_postgres::{Pool, PoolError};
+use tokio::{task::JoinHandle, time};
 
 use crate::{KvClient, KvClientExpiry};
 
@@ -14,6 +15,31 @@ impl PostgresClient {
 
     pub fn new(pool: Pool) -> Self {
         Self { pool }
+    }
+
+    pub async fn sweep_expired(&self) -> Result<u64, PostgresClientError> {
+        let client = self.pool.get().await?;
+
+        let stmt = client
+            .prepare_cached("DELETE FROM alternate.kv_entries WHERE expires_at <= now()")
+            .await?;
+
+        let count = client.execute(&stmt, &[]).await?;
+
+        Ok(count)
+    }
+
+    pub fn spawn_sweeper(self, interval: Duration) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = time::interval(interval);
+            ticker.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
+            loop {
+                ticker.tick().await;
+
+                let _ = self.sweep_expired().await;
+            }
+        })
     }
 }
 
