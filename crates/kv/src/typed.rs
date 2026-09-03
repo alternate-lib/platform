@@ -1,0 +1,76 @@
+use std::time::Duration;
+
+use alternate_codec::Codec;
+use serde::{Serialize, de::DeserializeOwned};
+
+use crate::{KvClient, KvClientExpiry};
+
+pub trait KvClientTyped<C: Codec>: KvClient {
+    fn get_typed<V: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> impl Future<Output = Result<Option<V>, KvClientTypedError<C::Error, Self::Error>>> + Send;
+
+    fn set_typed<V: Serialize + Sync>(
+        &self,
+        key: &str,
+        value: &V,
+    ) -> impl Future<Output = Result<(), KvClientTypedError<C::Error, Self::Error>>> + Send;
+}
+
+impl<KC: KvClient, C: Codec> KvClientTyped<C> for KC {
+    async fn get_typed<V: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> Result<Option<V>, KvClientTypedError<C::Error, Self::Error>> {
+        match self.get(key).await? {
+            Some(raw) => Ok(Some(C::decode(&raw).map_err(KvClientTypedError::Codec)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn set_typed<V: Serialize>(
+        &self,
+        key: &str,
+        value: &V,
+    ) -> Result<(), KvClientTypedError<C::Error, Self::Error>> {
+        let raw = C::encode(&value).map_err(KvClientTypedError::Codec)?;
+
+        self.set(key, &raw).await?;
+
+        Ok(())
+    }
+}
+
+pub trait KvClientExpiryTyped<C: Codec>: KvClientExpiry {
+    fn set_with_ttl_typed<V: Serialize + Send>(
+        &self,
+        key: &str,
+        value: V,
+        ttl: Duration,
+    ) -> impl Future<Output = Result<(), KvClientTypedError<C::Error, Self::Error>>> + Send;
+}
+
+impl<KC: KvClientExpiry, C: Codec> KvClientExpiryTyped<C> for KC {
+    async fn set_with_ttl_typed<V: Serialize>(
+        &self,
+        key: &str,
+        value: V,
+        ttl: Duration,
+    ) -> Result<(), KvClientTypedError<C::Error, Self::Error>> {
+        let raw = C::encode(&value).map_err(KvClientTypedError::Codec)?;
+
+        self.set_with_ttl(key, &raw, ttl).await?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum KvClientTypedError<CodecErr: std::error::Error, ClientErr: std::error::Error> {
+    #[error("codec: {0}")]
+    Codec(CodecErr),
+
+    #[error(transparent)]
+    Client(#[from] ClientErr),
+}
