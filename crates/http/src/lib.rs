@@ -5,6 +5,8 @@ pub use typed::{HttpClientExtTyped, HttpClientTyped, HttpClientTypedError};
 
 #[cfg(feature = "reqwest")]
 pub mod reqwest;
+#[cfg(feature = "tower")]
+pub mod tower;
 #[cfg(feature = "typed")]
 mod typed;
 
