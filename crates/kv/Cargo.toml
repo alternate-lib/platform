@@ -14,6 +14,10 @@ serde = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing = { workspace = true, optional = true }
 
+[dev-dependencies]
+testcontainers = "0.28.0"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time"] }
+
 [features]
 default = ["tracing", "typed"]
 redis = ["dep:deadpool-redis", "dep:redis"]
