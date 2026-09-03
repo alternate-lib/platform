@@ -3,6 +3,8 @@ use std::time::Duration;
 #[cfg(feature = "typed")]
 pub use typed::{KvClientExpiryTyped, KvClientTyped, KvClientTypedError};
 
+#[cfg(feature = "postgres")]
+pub mod postgres;
 #[cfg(feature = "redis")]
 pub mod redis;
 #[cfg(feature = "typed")]
