@@ -99,3 +99,42 @@ pub enum ReqwestClientError {
     #[error(transparent)]
     Client(#[from] ClientError),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_uses_sensible_defaults() {
+        let config = ReqwestClientConfig::builder().build();
+
+        assert!(config.timeout_sec.is_none());
+        assert_eq!(config.proxy_urls, [] as [String; 0]);
+    }
+
+    #[test]
+    fn builder_accepts_overrides() {
+        let config = ReqwestClientConfig::builder()
+            .timeout_sec(1)
+            .proxy_url("http://proxy1.example.test")
+            .proxy_url("https://proxy2.example.test")
+            .build();
+
+        assert_eq!(config.timeout_sec, Some(1));
+        assert_eq!(
+            config.proxy_urls,
+            vec!["http://proxy1.example.test", "https://proxy2.example.test"]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_proxy_url() {
+        let result = ReqwestClient::create(
+            ReqwestClientConfig::builder()
+                .proxy_url("not a valid url")
+                .build(),
+        );
+
+        assert!(matches!(result, Err(ReqwestClientError::Client(_))));
+    }
+}

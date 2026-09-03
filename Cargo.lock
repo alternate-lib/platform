@@ -45,9 +45,12 @@ dependencies = [
  "bytes",
  "http",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "reqwest 0.13.4",
  "serde",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
