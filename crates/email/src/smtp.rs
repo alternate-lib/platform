@@ -22,7 +22,7 @@ impl SmtpClient {
         feature = "tracing",
         tracing::instrument(skip(config), fields(host = config.host, username = config.username, from_address = config.from_address), err(Debug))
     )]
-    pub fn create(config: SmtpConfig) -> Result<Self, SmtpClientError> {
+    pub fn create(config: SmtpClientConfig) -> Result<Self, SmtpClientError> {
         let mut builder = if config.use_tls {
             AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)?
         } else {
@@ -61,7 +61,7 @@ impl EmailClient for SmtpClient {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SmtpConfig {
+pub struct SmtpClientConfig {
     host: String,
     port: u16,
     use_tls: bool,
@@ -70,14 +70,14 @@ pub struct SmtpConfig {
     from_address: String,
 }
 
-impl SmtpConfig {
-    pub fn builder() -> SmtpConfigBuilder {
-        SmtpConfigBuilder::default()
+impl SmtpClientConfig {
+    pub fn builder() -> SmtpClientConfigBuilder {
+        SmtpClientConfigBuilder::default()
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct SmtpConfigBuilder {
+pub struct SmtpClientConfigBuilder {
     host: Option<String>,
     port: Option<u16>,
     use_tls: Option<bool>,
@@ -86,7 +86,7 @@ pub struct SmtpConfigBuilder {
     from_address: Option<String>,
 }
 
-impl SmtpConfigBuilder {
+impl SmtpClientConfigBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -127,8 +127,8 @@ impl SmtpConfigBuilder {
         self
     }
 
-    pub fn build(self) -> Result<SmtpConfig, SmtpConfigError> {
-        Ok(SmtpConfig {
+    pub fn build(self) -> Result<SmtpClientConfig, SmtpConfigError> {
+        Ok(SmtpClientConfig {
             host: self.host.ok_or(SmtpConfigError::MissingField("host"))?,
             port: self.port.unwrap_or(25),
             use_tls: self.use_tls.unwrap_or(true),
@@ -161,11 +161,11 @@ pub enum SmtpConfigError {
 
 #[cfg(test)]
 mod tests {
-    use super::{SmtpConfig, SmtpConfigError};
+    use super::*;
 
     #[test]
     fn builder_uses_sensible_defaults() {
-        let config = SmtpConfig::builder()
+        let config = SmtpClientConfig::builder()
             .host("smtp.example.test")
             .from_address("sender@example.test")
             .build()
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_overrides() {
-        let config = SmtpConfig::builder()
+        let config = SmtpClientConfig::builder()
             .host("smtp.example.test")
             .port(2525)
             .use_tls(false)
@@ -202,13 +202,15 @@ mod tests {
     #[test]
     fn builder_requires_host_and_from_address() {
         assert_eq!(
-            SmtpConfig::builder()
+            SmtpClientConfig::builder()
                 .from_address("sender@example.test")
                 .build(),
             Err(SmtpConfigError::MissingField("host"))
         );
         assert_eq!(
-            SmtpConfig::builder().host("smtp.example.test").build(),
+            SmtpClientConfig::builder()
+                .host("smtp.example.test")
+                .build(),
             Err(SmtpConfigError::MissingField("from_address"))
         );
     }

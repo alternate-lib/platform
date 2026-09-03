@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use alternate_storage::{
     StorageClient, StorageClientPresign,
-    s3::{S3Client, S3ClientError, S3Config},
+    s3::{S3Client, S3ClientConfig, S3ClientError},
 };
 use s3::{Bucket, BucketConfiguration, Region, creds::Credentials};
 use testcontainers::{
@@ -116,7 +116,7 @@ async fn init_server() -> Result<RustfsServer, Box<dyn std::error::Error>> {
 }
 
 async fn init_client(endpoint: &str, bucket: &str) -> Result<S3Client, Box<dyn std::error::Error>> {
-    let config = S3Config::builder()
+    let config = S3ClientConfig::builder()
         .access_key_id(ACCESS_KEY)
         .secret_access_key(SECRET_KEY)
         .region(REGION)

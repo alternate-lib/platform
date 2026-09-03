@@ -17,7 +17,7 @@ impl FsClient {
         feature = "tracing",
         tracing::instrument(skip(config), fields(root = ?config.root), err(Debug))
     )]
-    pub async fn create(config: FsConfig) -> Result<Self, FsClientError> {
+    pub async fn create(config: FsClientConfig) -> Result<Self, FsClientError> {
         if let Some(root) = &config.root {
             let metadata = match fs::metadata(root).await {
                 Ok(metadata) => metadata,
@@ -108,22 +108,22 @@ impl StorageClient for FsClient {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct FsConfig {
+pub struct FsClientConfig {
     root: Option<PathBuf>,
 }
 
-impl FsConfig {
-    pub fn builder() -> FsConfigBuilder {
-        FsConfigBuilder::default()
+impl FsClientConfig {
+    pub fn builder() -> FsClientConfigBuilder {
+        FsClientConfigBuilder::default()
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct FsConfigBuilder {
+pub struct FsClientConfigBuilder {
     root: Option<PathBuf>,
 }
 
-impl FsConfigBuilder {
+impl FsClientConfigBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -134,8 +134,8 @@ impl FsConfigBuilder {
         self
     }
 
-    pub fn build(self) -> FsConfig {
-        FsConfig { root: self.root }
+    pub fn build(self) -> FsClientConfig {
+        FsClientConfig { root: self.root }
     }
 }
 
@@ -160,18 +160,18 @@ mod tests {
 
     #[test]
     fn builder_defaults_to_no_root() {
-        let config = FsConfig::builder().build();
+        let config = FsClientConfig::builder().build();
 
-        assert_eq!(config, FsConfig { root: None });
+        assert_eq!(config, FsClientConfig { root: None });
     }
 
     #[test]
     fn builder_accepts_root() {
-        let config = FsConfig::builder().root("/var/lib/alternate").build();
+        let config = FsClientConfig::builder().root("/var/lib/alternate").build();
 
         assert_eq!(
             config,
-            FsConfig {
+            FsClientConfig {
                 root: Some("/var/lib/alternate".into())
             }
         );

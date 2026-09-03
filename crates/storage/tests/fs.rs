@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use alternate_storage::{
     StorageClient,
-    fs::{FsClient, FsClientError, FsConfig},
+    fs::{FsClient, FsClientConfig, FsClientError},
 };
 use tokio::fs;
 
@@ -20,7 +20,7 @@ async fn rejects_missing_root() {
     let root = temp_dir("missing-root").await.join("does-not-exist");
 
     assert!(matches!(
-        FsClient::create(FsConfig::builder().root(&root).build()).await,
+        FsClient::create(FsClientConfig::builder().root(&root).build()).await,
         Err(FsClientError::RootNotFound(_))
     ));
 }
@@ -31,7 +31,7 @@ async fn rejects_non_directory_root() {
     fs::write(&file, b"").await.unwrap();
 
     assert!(matches!(
-        FsClient::create(FsConfig::builder().root(&file).build()).await,
+        FsClient::create(FsClientConfig::builder().root(&file).build()).await,
         Err(FsClientError::RootNotADirectory(_))
     ));
 }
@@ -42,7 +42,9 @@ async fn round_trips_without_root() {
     let file = dir.join("object.txt");
     let file_path = file.to_str().unwrap();
 
-    let client = FsClient::create(FsConfig::builder().build()).await.unwrap();
+    let client = FsClient::create(FsClientConfig::builder().build())
+        .await
+        .unwrap();
 
     assert!(!client.exists(file_path).await.unwrap());
     client.put(file_path, b"hello").await.unwrap();
@@ -64,7 +66,7 @@ async fn round_trips_with_root() {
     let root = temp_dir("with-root").await;
     let file_path = "nested/object.txt";
 
-    let client = FsClient::create(FsConfig::builder().root(&root).build())
+    let client = FsClient::create(FsClientConfig::builder().root(&root).build())
         .await
         .unwrap();
 
@@ -87,7 +89,7 @@ async fn round_trips_with_root() {
 #[tokio::test]
 async fn rejects_absolute_paths_with_root() {
     let root = temp_dir("absolute-path").await;
-    let client = FsClient::create(FsConfig::builder().root(&root).build())
+    let client = FsClient::create(FsClientConfig::builder().root(&root).build())
         .await
         .unwrap();
 

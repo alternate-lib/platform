@@ -21,7 +21,7 @@ impl S3Client {
         feature = "tracing",
         tracing::instrument(skip(config), fields(access_key_id = config.access_key_id, region = config.region, endpoint = config.endpoint, bucket = config.bucket), err(Debug))
     )]
-    pub async fn init(config: S3Config) -> Result<Self, S3ClientError> {
+    pub async fn init(config: S3ClientConfig) -> Result<Self, S3ClientError> {
         let region = Region::Custom {
             region: config.region,
             endpoint: config.endpoint,
@@ -133,7 +133,7 @@ impl StorageClientPresign for S3Client {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct S3Config {
+pub struct S3ClientConfig {
     access_key_id: String,
     secret_access_key: String,
     region: String,
@@ -142,14 +142,14 @@ pub struct S3Config {
     use_path_style: bool,
 }
 
-impl S3Config {
-    pub fn builder() -> S3ConfigBuilder {
-        S3ConfigBuilder::default()
+impl S3ClientConfig {
+    pub fn builder() -> S3ClientConfigBuilder {
+        S3ClientConfigBuilder::default()
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct S3ConfigBuilder {
+pub struct S3ClientConfigBuilder {
     access_key_id: Option<String>,
     secret_access_key: Option<String>,
     region: Option<String>,
@@ -158,7 +158,7 @@ pub struct S3ConfigBuilder {
     use_path_style: Option<bool>,
 }
 
-impl S3ConfigBuilder {
+impl S3ClientConfigBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -199,8 +199,8 @@ impl S3ConfigBuilder {
         self
     }
 
-    pub fn build(self) -> Result<S3Config, S3ConfigError> {
-        Ok(S3Config {
+    pub fn build(self) -> Result<S3ClientConfig, S3ConfigError> {
+        Ok(S3ClientConfig {
             access_key_id: self
                 .access_key_id
                 .ok_or(S3ConfigError::MissingField("access_key_id"))?,
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_overrides() {
-        let config = S3Config::builder()
+        let config = S3ClientConfig::builder()
             .access_key_id("key")
             .secret_access_key("secret")
             .region("us-east-1")
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn builder_fails_on_missing_fields() {
-        let mut builder = S3Config::builder();
+        let mut builder = S3ClientConfig::builder();
 
         assert_eq!(
             builder.clone().build(),
