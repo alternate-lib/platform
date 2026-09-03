@@ -1,5 +1,2 @@
 [cargo]
 features = "all"
-
-[rustfmt]
-extraArgs = ["+nightly"]
