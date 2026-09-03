@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/email", "crates/http", "crates/kv", "crates/storage"]
+members = ["crates/email", "crates/http", "crates/kv", "crates/migration", "crates/storage"]
 
 [workspace.dependencies]
 alternate-kv.path = "crates/kv"
@@ -9,6 +9,7 @@ alternate-codec = { version = "0.1.0", registry = "self-hosted", git = "https://
 
 anyhow = "1.0.104"
 async-trait = "0.1.92"
+jiff = "0.2.35"
 serde = "1.0.229"
 thiserror = "2.0.20"
 tracing = "0.1.44"
