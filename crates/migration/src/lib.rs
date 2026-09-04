@@ -1,13 +1,14 @@
 use std::{
-    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
 };
 
 use jiff::Timestamp;
+pub use runner::*;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
+mod runner;
 
 pub trait MigrationBackend {
     fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), MigrationError>>;
@@ -86,127 +87,6 @@ pub struct AppliedMigration {
     pub name: String,
     pub checksum: String,
     pub applied_at: Timestamp,
-}
-
-#[derive(Clone, Debug)]
-pub struct MigrationRunner<B> {
-    backend: B,
-}
-
-impl<B> MigrationRunner<B> {
-    pub fn new(backend: B) -> Self {
-        Self { backend }
-    }
-}
-
-impl<B: MigrationBackend> MigrationRunner<B> {
-    pub async fn migrate_to_latest(
-        &self,
-        migrations: Vec<Migration>,
-    ) -> Result<(), MigrationError> {
-        self.run(migrations, false).await
-    }
-
-    pub async fn sync_to_latest(&self, migrations: Vec<Migration>) -> Result<(), MigrationError> {
-        self.run(migrations, true).await
-    }
-
-    async fn run(&self, migrations: Vec<Migration>, sync_only: bool) -> Result<(), MigrationError> {
-        let migrations = sort_migrations(migrations)?;
-
-        self.backend.ensure_metadata_table().await?;
-
-        let applied = self.backend.load_applied().await?;
-        let applied_by_version = applied
-            .iter()
-            .map(|migration| (migration.version, migration))
-            .collect::<BTreeMap<_, _>>();
-
-        let embedded_by_version = migrations
-            .iter()
-            .map(|migration| (migration.version, migration))
-            .collect::<BTreeMap<_, _>>();
-
-        validate_applied_history(&applied_by_version, &embedded_by_version)?;
-        let highest_applied_version = applied_by_version.keys().next_back().copied();
-
-        for migration in migrations {
-            if applied_by_version.contains_key(&migration.version) {
-                continue;
-            }
-
-            validate_pending_migration_version(migration.version, highest_applied_version)?;
-
-            if sync_only {
-                self.backend.record(&migration).await?;
-            } else {
-                self.backend.apply(&migration).await?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
-fn sort_migrations(mut migrations: Vec<Migration>) -> Result<Vec<Migration>, MigrationError> {
-    migrations.sort_unstable_by_key(|migration| migration.version);
-
-    for migrations in migrations.windows(2) {
-        let [previous_migration, migration] = migrations else {
-            continue;
-        };
-
-        if migration.version == previous_migration.version {
-            return Err(MigrationError::DuplicateVersion {
-                version: migration.version,
-                name: migration.name.clone(),
-                previous_name: previous_migration.name.clone(),
-            });
-        }
-    }
-
-    Ok(migrations)
-}
-
-fn validate_applied_history(
-    applied_by_version: &BTreeMap<u64, &AppliedMigration>,
-    embedded_by_version: &BTreeMap<u64, &Migration>,
-) -> Result<(), MigrationError> {
-    for applied_migration in applied_by_version.values() {
-        let Some(embedded_migration) = embedded_by_version.get(&applied_migration.version) else {
-            return Err(MigrationError::DirtyHistory {
-                version: applied_migration.version,
-                name: applied_migration.name.clone(),
-            });
-        };
-
-        if applied_migration.checksum != embedded_migration.checksum {
-            return Err(MigrationError::ChecksumMismatch {
-                version: applied_migration.version,
-                name: embedded_migration.name.clone(),
-                expected_checksum: embedded_migration.checksum.clone(),
-                actual_checksum: applied_migration.checksum.clone(),
-            });
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_pending_migration_version(
-    version: u64,
-    highest_applied_version: Option<u64>,
-) -> Result<(), MigrationError> {
-    if let Some(highest_applied_version) = highest_applied_version
-        && version < highest_applied_version
-    {
-        return Err(MigrationError::OutOfOrder {
-            version,
-            highest_applied: highest_applied_version,
-        });
-    }
-
-    Ok(())
 }
 
 pub fn generate(dir: &Path, name: &str, prefix: MigrationPrefix) -> Result<PathBuf, GenerateError> {
@@ -319,4 +199,76 @@ pub enum GenerateError {
 
     #[error(transparent)]
     Io(#[from] io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_sequential_version() {
+        let migration =
+            Migration::try_new("0001_create_users.sql", "CREATE TABLE users;".to_owned()).unwrap();
+
+        assert_eq!(migration.version(), 1);
+        assert_eq!(migration.name(), "create_users");
+        assert_eq!(
+            migration.checksum,
+            blake3::hash(b"CREATE TABLE users;").to_hex().to_string()
+        );
+    }
+
+    #[test]
+    fn parses_timestamp_version() {
+        let migration =
+            Migration::try_new("20250101123045_add_index.sql", "CREATE INDEX;".to_owned()).unwrap();
+
+        assert_eq!(migration.version(), 20_250_101_123_045);
+        assert_eq!(migration.name(), "add_index");
+    }
+
+    #[test]
+    fn checksum_depends_on_contents() {
+        let first = Migration::try_new("0001_a.sql", "SELECT 1;".to_owned()).unwrap();
+        let second = Migration::try_new("0001_a.sql", "SELECT 2;".to_owned()).unwrap();
+        let identical = Migration::try_new("0001_a.sql", "SELECT 1;".to_owned()).unwrap();
+
+        assert_ne!(first.checksum, second.checksum);
+        assert_eq!(first.checksum, identical.checksum);
+    }
+
+    #[test]
+    fn rejects_invalid_filenames() {
+        let invalid = [
+            "0001_create_users",
+            "0001_create_users.txt",
+            "0001create_users.sql",
+            "0001_.sql",
+            "00a1_create_users.sql",
+            "001_create_users.sql",
+            "00001_create_users.sql",
+            "202501011230450_short.sql",
+        ];
+
+        for filename in invalid {
+            assert!(
+                matches!(
+                    Migration::try_new(filename, String::new()),
+                    Err(MigrationError::InvalidFilename(reported)) if reported == filename
+                ),
+                "expected `{filename}` to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_uppercase_extension() {
+        // The extension check is case-insensitive but `strip_suffix(".sql")` is
+        // not, so an uppercase extension is always rejected. This locks in the
+        // current behavior; revisit if case-insensitive handling is intended.
+        assert!(matches!(
+            Migration::try_new("0001_create_users.SQL", String::new()),
+            Err(MigrationError::InvalidFilename(_))
+        ));
+    }
 }

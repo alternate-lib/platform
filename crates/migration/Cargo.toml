@@ -11,6 +11,9 @@ thiserror.workspace = true
 tokio = { version = "1.53.1", optional = true }
 tokio-postgres = { version = "0.7.18", features = ["with-jiff-0_2"], optional = true }
 
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["macros", "rt"] }
+
 [features]
 default = []
 postgres = ["dep:tokio", "dep:tokio-postgres"]
