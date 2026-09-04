@@ -12,7 +12,9 @@ tokio = { version = "1.53.1", optional = true }
 tokio-postgres = { version = "0.7.18", features = ["with-jiff-0_2"], optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.53.1", features = ["macros", "rt"] }
+blake3 = "1.8.7"
+testcontainers = "0.28.0"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time"] }
 
 [features]
 default = []

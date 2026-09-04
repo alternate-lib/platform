@@ -83,6 +83,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "jiff",
+ "testcontainers",
  "thiserror",
  "tokio",
  "tokio-postgres",
