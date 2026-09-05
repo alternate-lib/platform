@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use alternate_migration::{
-    AsyncMigrationBackend, Migration, MigrationError, MigrationRunner, postgres::PostgresBackend,
+    AsyncMigrationBackend, AsyncMigrationRunner, Migration, MigrationError,
+    postgres::PostgresBackend,
 };
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt as _, core::IntoContainerPort, runners::AsyncRunner,
@@ -252,7 +253,7 @@ async fn uses_custom_metadata_table() -> Result<(), Box<dyn std::error::Error>> 
 async fn runner_applies_pending_migrations_and_is_idempotent()
 -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let mut runner = MigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
+    let mut runner = AsyncMigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
     let probe = server.connect().await?;
 
     let migrations = vec![
@@ -284,7 +285,7 @@ async fn runner_applies_pending_migrations_and_is_idempotent()
 #[tokio::test]
 async fn runner_sync_records_without_applying_sql() -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let mut runner = MigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
+    let mut runner = AsyncMigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
     let probe = server.connect().await?;
 
     runner

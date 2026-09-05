@@ -3,15 +3,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub use async_runner::*;
 use jiff::{Timestamp, civil::Date};
-pub use runner::*;
+pub use sync_runner::*;
 
+mod async_runner;
 mod plan;
 #[cfg(feature = "postgres")]
 pub mod postgres;
-mod runner;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
+mod sync_runner;
+#[cfg(test)]
+mod test_utils;
 
 const MAX_SEQUENTIAL_VERSION: u16 = 9999;
 

@@ -1,17 +1,17 @@
 use crate::{AsyncMigrationBackend, Migration, MigrationError, plan::plan_migrations};
 
 #[derive(Clone, Debug)]
-pub struct MigrationRunner<B> {
+pub struct AsyncMigrationRunner<B> {
     backend: B,
 }
 
-impl<B> MigrationRunner<B> {
+impl<B> AsyncMigrationRunner<B> {
     pub fn new(backend: B) -> Self {
         Self { backend }
     }
 }
 
-impl<B: AsyncMigrationBackend> MigrationRunner<B> {
+impl<B: AsyncMigrationBackend> AsyncMigrationRunner<B> {
     pub async fn migrate_to_latest(
         &mut self,
         migrations: Vec<Migration>,
@@ -55,119 +55,13 @@ mod tests {
         rc::Rc,
     };
 
-    use jiff::Timestamp;
-
     use super::*;
-    use crate::{AppliedMigration, Migration, MigrationError};
-
-    fn migration(version: u16, name: &str) -> Migration {
-        Migration::try_new(
-            &format!("{version:04}_{name}.sql"),
-            format!("-- {version:04} {name}"),
-        )
-        .unwrap()
-    }
-
-    fn applied(version: u64, name: &str, checksum: String) -> AppliedMigration {
-        AppliedMigration {
-            version,
-            name: name.to_owned(),
-            checksum,
-            applied_at: Timestamp::from_second(0).unwrap(),
-        }
-    }
-
-    fn applied_from(migration: &Migration) -> AppliedMigration {
-        applied(
-            migration.version(),
-            migration.name(),
-            migration.checksum.clone(),
-        )
-    }
-
-    #[derive(Clone, Default)]
-    struct FakeBackend {
-        calls: Rc<RefCell<Vec<String>>>,
-        applied: Rc<RefCell<Vec<AppliedMigration>>>,
-        fail_ensure_metadata_table: Rc<Cell<bool>>,
-        fail_load_applied: Rc<Cell<bool>>,
-        fail_apply_versions: Rc<RefCell<Vec<u64>>>,
-    }
-
-    impl FakeBackend {
-        fn push(&self, call: &str) {
-            self.calls.borrow_mut().push(call.to_owned());
-        }
-
-        fn calls(&self) -> Vec<String> {
-            self.calls.borrow().to_owned()
-        }
-    }
-
-    impl AsyncMigrationBackend for FakeBackend {
-        fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), MigrationError>> {
-            self.push("ensure_metadata_table");
-
-            let result = if self.fail_ensure_metadata_table.get() {
-                Err(MigrationError::Backend(anyhow::anyhow!(
-                    "ensure_metadata_table failed"
-                )))
-            } else {
-                Ok(())
-            };
-
-            std::future::ready(result)
-        }
-
-        fn load_applied(
-            &mut self,
-        ) -> impl Future<Output = Result<Vec<AppliedMigration>, MigrationError>> {
-            self.push("load_applied");
-
-            let result = if self.fail_load_applied.get() {
-                Err(MigrationError::Backend(anyhow::anyhow!(
-                    "load_applied failed"
-                )))
-            } else {
-                Ok(self.applied.borrow().clone())
-            };
-
-            std::future::ready(result)
-        }
-
-        fn apply(
-            &mut self,
-            migration: &Migration,
-        ) -> impl Future<Output = Result<(), MigrationError>> {
-            self.push(&format!("apply:{}", migration.version()));
-
-            let result = if self
-                .fail_apply_versions
-                .borrow()
-                .contains(&migration.version())
-            {
-                Err(MigrationError::Backend(anyhow::anyhow!("apply failed")))
-            } else {
-                Ok(())
-            };
-
-            std::future::ready(result)
-        }
-
-        fn record(
-            &mut self,
-            migration: &Migration,
-        ) -> impl Future<Output = Result<(), MigrationError>> {
-            self.push(&format!("record:{}", migration.version()));
-
-            std::future::ready(Ok(()))
-        }
-    }
+    use crate::test_utils::{FakeBackend, applied, applied_from, migration};
 
     #[tokio::test]
     async fn runner_applies_pending_in_sorted_order() {
         let backend = FakeBackend::default();
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         runner
             .migrate_to_latest(vec![migration(2, "b"), migration(1, "a")])
@@ -192,7 +86,7 @@ mod tests {
             applied: Rc::new(RefCell::new(vec![applied_from(&first)])),
             ..FakeBackend::default()
         };
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         runner
             .migrate_to_latest(vec![first, migration(2, "b")])
@@ -213,7 +107,7 @@ mod tests {
             applied: Rc::new(RefCell::new(applied)),
             ..FakeBackend::default()
         };
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         runner.migrate_to_latest(migrations).await.unwrap();
 
@@ -223,7 +117,7 @@ mod tests {
     #[tokio::test]
     async fn runner_accepts_empty_migration_list() {
         let backend = FakeBackend::default();
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         runner.migrate_to_latest(Vec::new()).await.unwrap();
 
@@ -233,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn runner_rejects_duplicate_versions_without_applying() {
         let backend = FakeBackend::default();
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         let result = runner
             .migrate_to_latest(vec![migration(1, "a"), migration(1, "b")])
@@ -256,7 +150,7 @@ mod tests {
             )])),
             ..FakeBackend::default()
         };
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         let result = runner.migrate_to_latest(vec![migration(1, "a")]).await;
 
@@ -273,7 +167,7 @@ mod tests {
             fail_apply_versions: Rc::new(RefCell::new(vec![2])),
             ..FakeBackend::default()
         };
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         let result = runner
             .migrate_to_latest(vec![
@@ -301,7 +195,7 @@ mod tests {
             fail_ensure_metadata_table: Rc::new(Cell::new(true)),
             ..FakeBackend::default()
         };
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         let result = runner.migrate_to_latest(vec![migration(1, "a")]).await;
 
@@ -315,7 +209,7 @@ mod tests {
             fail_load_applied: Rc::new(Cell::new(true)),
             ..FakeBackend::default()
         };
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         let result = runner.migrate_to_latest(vec![migration(1, "a")]).await;
 
@@ -326,7 +220,7 @@ mod tests {
     #[tokio::test]
     async fn runner_records_pending_without_applying() {
         let backend = FakeBackend::default();
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         runner
             .record_to_latest(vec![migration(2, "b"), migration(1, "a")])
@@ -351,7 +245,7 @@ mod tests {
             applied: Rc::new(RefCell::new(vec![applied_from(&first)])),
             ..FakeBackend::default()
         };
-        let mut runner = MigrationRunner::new(backend.clone());
+        let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         runner
             .record_to_latest(vec![first, migration(2, "b")])
