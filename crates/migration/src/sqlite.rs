@@ -34,7 +34,7 @@ impl SyncMigrationBackend for SqliteMigrationBackend {
                 version INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 checksum TEXT NOT NULL,
-                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             )",
             table_name = self.table_name,
         );
@@ -59,10 +59,10 @@ impl SyncMigrationBackend for SqliteMigrationBackend {
             .prepare(&select_sql)
             .context("select applied migrations")?;
         let migrations = stmt
-            .query_map([], |r| Ok(AppliedMigration::from(r)))
+            .query_map([], applied_migration_from_row)
             .context("query applied migrations")?
-            .filter_map(Result::ok)
-            .collect();
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("read applied migrations")?;
 
         Ok(migrations)
     }
@@ -117,13 +117,11 @@ impl SyncMigrationBackend for SqliteMigrationBackend {
     }
 }
 
-impl<'a> From<&'a Row<'a>> for AppliedMigration {
-    fn from(row: &'a Row<'a>) -> Self {
-        Self {
-            version: row.get::<_, i64>("version").unwrap().cast_unsigned(),
-            name: row.get("name").unwrap(),
-            checksum: row.get("checksum").unwrap(),
-            applied_at: row.get("applied_at").unwrap(),
-        }
-    }
+fn applied_migration_from_row(row: &Row<'_>) -> rusqlite::Result<AppliedMigration> {
+    Ok(AppliedMigration {
+        version: row.get::<_, i64>("version")?.cast_unsigned(),
+        name: row.get("name")?,
+        checksum: row.get("checksum")?,
+        applied_at: row.get("applied_at")?,
+    })
 }
