@@ -1,5 +1,6 @@
 use std::{fmt::Debug, time::Duration};
 
+use alternate_migration::Migration;
 use deadpool_postgres::{Pool, PoolError};
 use tokio::{task::JoinHandle, time};
 
@@ -151,6 +152,24 @@ impl KvClientExpiry for PostgresClient {
 
         Ok(())
     }
+}
+
+#[derive(rust_embed::Embed)]
+#[folder = "migrations/postgres"]
+struct Migrations;
+
+/// # Panics
+///
+/// Will panic if a migration file is not found
+pub fn migrations() -> Result<Vec<Migration>, alternate_migration::MigrationError> {
+    Migrations::iter()
+        .map(|filename| {
+            let migration = Migrations::get(&filename).expect("migration file not found");
+            let sql = String::from_utf8_lossy(migration.data.as_ref()).to_string();
+
+            Migration::try_new(&filename, sql)
+        })
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]
