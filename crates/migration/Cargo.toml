@@ -7,6 +7,7 @@ edition = "2024"
 anyhow.workspace = true
 blake3 = "1.8.7"
 jiff.workspace = true
+rusqlite = { version = "0.40.2", features = ["jiff"], optional = true }
 thiserror.workspace = true
 tokio = { version = "1.53.1", optional = true }
 tokio-postgres = { version = "0.7.18", features = ["with-jiff-0_2"], optional = true }
@@ -19,6 +20,8 @@ tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time"] }
 [features]
 default = []
 postgres = ["dep:tokio", "dep:tokio-postgres"]
+sqlite = ["dep:rusqlite"]
+sqlite-bundled = ["sqlite", "rusqlite/bundled"]
 
 [lints]
 workspace = true
