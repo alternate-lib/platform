@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use alternate_migration::{
-    Migration, MigrationBackend, MigrationError, MigrationRunner, postgres::PostgresBackend,
+    AsyncMigrationBackend, Migration, MigrationError, MigrationRunner, postgres::PostgresBackend,
 };
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt as _, core::IntoContainerPort, runners::AsyncRunner,
@@ -104,7 +104,7 @@ async fn table_exists(client: &Client, table_name: &str) -> Result<bool, tokio_p
 #[tokio::test]
 async fn creates_metadata_table_idempotently() -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let backend = PostgresBackend::new(server.connect_ready().await);
+    let mut backend = PostgresBackend::new(server.connect_ready().await);
     let probe = server.connect().await?;
 
     backend.ensure_metadata_table().await?;
@@ -149,7 +149,7 @@ async fn creates_metadata_table_idempotently() -> Result<(), Box<dyn std::error:
 #[tokio::test]
 async fn records_and_loads_migrations_in_version_order() -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let backend = PostgresBackend::new(server.connect_ready().await);
+    let mut backend = PostgresBackend::new(server.connect_ready().await);
 
     backend.ensure_metadata_table().await?;
 
@@ -178,7 +178,7 @@ async fn records_and_loads_migrations_in_version_order() -> Result<(), Box<dyn s
 #[tokio::test]
 async fn applies_sql_and_records_metadata() -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let backend = PostgresBackend::new(server.connect_ready().await);
+    let mut backend = PostgresBackend::new(server.connect_ready().await);
     let probe = server.connect().await?;
 
     backend.ensure_metadata_table().await?;
@@ -206,7 +206,7 @@ async fn applies_sql_and_records_metadata() -> Result<(), Box<dyn std::error::Er
 #[tokio::test]
 async fn rolls_back_failed_migration() -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let backend = PostgresBackend::new(server.connect_ready().await);
+    let mut backend = PostgresBackend::new(server.connect_ready().await);
     let probe = server.connect().await?;
 
     backend.ensure_metadata_table().await?;
@@ -233,7 +233,7 @@ async fn rolls_back_failed_migration() -> Result<(), Box<dyn std::error::Error>>
 #[tokio::test]
 async fn uses_custom_metadata_table() -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let backend = PostgresBackend::new(server.connect_ready().await).with_table_name("_custom");
+    let mut backend = PostgresBackend::new(server.connect_ready().await).with_table_name("_custom");
     let probe = server.connect().await?;
 
     backend.ensure_metadata_table().await?;
@@ -252,7 +252,7 @@ async fn uses_custom_metadata_table() -> Result<(), Box<dyn std::error::Error>> 
 async fn runner_applies_pending_migrations_and_is_idempotent()
 -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let runner = MigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
+    let mut runner = MigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
     let probe = server.connect().await?;
 
     let migrations = vec![
@@ -284,7 +284,7 @@ async fn runner_applies_pending_migrations_and_is_idempotent()
 #[tokio::test]
 async fn runner_sync_records_without_applying_sql() -> Result<(), Box<dyn std::error::Error>> {
     let server = PostgresServer::init().await?;
-    let runner = MigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
+    let mut runner = MigrationRunner::new(PostgresBackend::new(server.connect_ready().await));
     let probe = server.connect().await?;
 
     runner

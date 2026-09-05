@@ -1,21 +1,20 @@
 use anyhow::Context as _;
-use tokio::sync::Mutex;
 use tokio_postgres::{Client, Row};
 
-use crate::{AppliedMigration, Migration, MigrationBackend, MigrationError};
+use crate::{AppliedMigration, AsyncMigrationBackend, Migration, MigrationError};
 
-const METADATA_TABLE_NAME: &str = "_alternate_migrations";
+const DEFAULT_TABLE_NAME: &str = "_alternate_migrations";
 
 pub struct PostgresBackend {
-    client: Mutex<Client>,
+    client: Client,
     table_name: String,
 }
 
 impl PostgresBackend {
     pub fn new(client: Client) -> Self {
         Self {
-            client: Mutex::new(client),
-            table_name: METADATA_TABLE_NAME.to_string(),
+            client,
+            table_name: DEFAULT_TABLE_NAME.to_owned(),
         }
     }
 
@@ -27,10 +26,8 @@ impl PostgresBackend {
     }
 }
 
-impl MigrationBackend for PostgresBackend {
+impl AsyncMigrationBackend for PostgresBackend {
     async fn ensure_metadata_table(&self) -> Result<(), MigrationError> {
-        let client = &self.client.lock().await;
-
         let create_sql = format!(
             r"CREATE TABLE IF NOT EXISTS {table_name} (
                 version BIGINT PRIMARY KEY,
@@ -41,7 +38,7 @@ impl MigrationBackend for PostgresBackend {
             table_name = self.table_name,
         );
 
-        client
+        self.client
             .batch_execute(&create_sql)
             .await
             .context("create migrations table")?;
@@ -49,9 +46,7 @@ impl MigrationBackend for PostgresBackend {
         Ok(())
     }
 
-    async fn load_applied(&self) -> Result<Vec<AppliedMigration>, MigrationError> {
-        let client = self.client.lock().await;
-
+    async fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, MigrationError> {
         let select_sql = format!(
             r"SELECT version, name, checksum, applied_at
                 FROM {table_name}
@@ -59,7 +54,8 @@ impl MigrationBackend for PostgresBackend {
             table_name = self.table_name,
         );
 
-        let rows = client
+        let rows = self
+            .client
             .query(&select_sql, &[])
             .await
             .context("select applied migrations")?;
@@ -68,10 +64,12 @@ impl MigrationBackend for PostgresBackend {
         Ok(migrations)
     }
 
-    async fn apply(&self, migration: &Migration) -> Result<(), MigrationError> {
-        let mut client = self.client.lock().await;
-
-        let tx = client.transaction().await.map_err(anyhow::Error::from)?;
+    async fn apply(&mut self, migration: &Migration) -> Result<(), MigrationError> {
+        let tx = self
+            .client
+            .transaction()
+            .await
+            .map_err(anyhow::Error::from)?;
 
         tx.batch_execute(&migration.sql)
             .await
@@ -99,16 +97,14 @@ impl MigrationBackend for PostgresBackend {
         Ok(())
     }
 
-    async fn record(&self, migration: &Migration) -> Result<(), MigrationError> {
-        let client = self.client.lock().await;
-
+    async fn record(&mut self, migration: &Migration) -> Result<(), MigrationError> {
         let insert_sql = format!(
             r"INSERT INTO {table_name} (version, name, checksum)
                 VALUES ($1, $2, $3)",
             table_name = self.table_name,
         );
 
-        client
+        self.client
             .execute(
                 &insert_sql,
                 &[

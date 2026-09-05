@@ -6,24 +6,14 @@ use std::{
 use jiff::{Timestamp, civil::Date};
 pub use runner::*;
 
+mod plan;
 #[cfg(feature = "postgres")]
 pub mod postgres;
-mod plan;
 mod runner;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
 const MAX_SEQUENTIAL_VERSION: u16 = 9999;
-
-pub trait MigrationBackend {
-    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), MigrationError>>;
-
-    fn load_applied(&self) -> impl Future<Output = Result<Vec<AppliedMigration>, MigrationError>>;
-
-    fn apply(&self, migration: &Migration) -> impl Future<Output = Result<(), MigrationError>>;
-
-    fn record(&self, migration: &Migration) -> impl Future<Output = Result<(), MigrationError>>;
-}
 
 pub trait SyncMigrationBackend {
     fn ensure_metadata_table(&mut self) -> Result<(), MigrationError>;
@@ -33,6 +23,19 @@ pub trait SyncMigrationBackend {
     fn apply(&mut self, migration: &Migration) -> Result<(), MigrationError>;
 
     fn record(&mut self, migration: &Migration) -> Result<(), MigrationError>;
+}
+
+pub trait AsyncMigrationBackend {
+    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), MigrationError>>;
+
+    fn load_applied(
+        &mut self,
+    ) -> impl Future<Output = Result<Vec<AppliedMigration>, MigrationError>>;
+
+    fn apply(&mut self, migration: &Migration) -> impl Future<Output = Result<(), MigrationError>>;
+
+    fn record(&mut self, migration: &Migration)
+    -> impl Future<Output = Result<(), MigrationError>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
