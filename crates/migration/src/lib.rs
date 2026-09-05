@@ -3,12 +3,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use jiff::Timestamp;
+use jiff::{Timestamp, civil::Date};
 pub use runner::*;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
 mod runner;
+
+const MAX_SEQUENTIAL_VERSION: u16 = 9999;
 
 pub trait MigrationBackend {
     fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), MigrationError>>;
@@ -38,43 +40,20 @@ impl Migration {
     }
 
     pub fn try_new(filename: &str, contents: String) -> Result<Self, MigrationError> {
-        if !filename.to_lowercase().ends_with(".sql") {
+        let Some((prefix, name)) = parse_migration_filename(filename) else {
             return Err(MigrationError::InvalidFilename(filename.to_string()));
-        }
+        };
 
-        let mut parts = filename.splitn(2, '_');
-        let version_str = parts
-            .next()
-            .ok_or_else(|| MigrationError::InvalidFilename(filename.to_string()))?;
-        let name = parts
-            .next()
-            .ok_or_else(|| MigrationError::InvalidFilename(filename.to_string()))?
-            .strip_suffix(".sql")
-            .ok_or_else(|| MigrationError::InvalidFilename(filename.to_string()))?
-            .to_owned();
-
-        if name.is_empty() {
-            return Err(MigrationError::InvalidFilename(filename.to_string()));
-        }
-
-        let all_digits = version_str.chars().all(|c| c.is_ascii_digit());
-
-        let version = match version_str.len() {
-            4 if all_digits => version_str
-                .parse::<u16>()
-                .map_err(|_| MigrationError::InvalidFilename(filename.to_string()))?
-                .into(),
-            14 if all_digits => version_str
-                .parse::<u64>()
-                .map_err(|_| MigrationError::InvalidFilename(filename.to_string()))?,
-            _ => return Err(MigrationError::InvalidFilename(filename.to_string())),
+        let version = match prefix {
+            VersionPrefix::Sequential(version) => u64::from(version),
+            VersionPrefix::Timestamp(version) => version,
         };
 
         let checksum = blake3::hash(contents.as_bytes()).to_hex().to_string();
 
         Ok(Self {
             version,
-            name,
+            name: name.to_owned(),
             sql: contents,
             checksum,
         })
@@ -90,24 +69,30 @@ pub struct AppliedMigration {
 }
 
 pub fn generate(dir: &Path, name: &str, prefix: MigrationPrefix) -> Result<PathBuf, GenerateError> {
+    if !is_valid_migration_name(name) {
+        return Err(GenerateError::InvalidName(name.to_owned()));
+    }
+
     fs::create_dir_all(dir)?;
 
     let version_str = match prefix {
         MigrationPrefix::Timestamp => Timestamp::now().strftime("%Y%m%d%H%M%S").to_string(),
-        MigrationPrefix::Sequential => {
-            let next = next_sequential(dir)?;
-            format!("{next:04}")
-        }
+        MigrationPrefix::Sequential => format!("{:04}", next_sequential(dir)?),
     };
 
-    let filename = format!("{version_str}_{name}.sql");
-    let path = dir.join(&filename);
+    let path = dir.join(format!("{version_str}_{name}.sql"));
 
-    if path.exists() {
-        return Err(GenerateError::AlreadyExists(path));
-    }
-
-    fs::File::create(&path)?;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|err| {
+            if err.kind() == io::ErrorKind::AlreadyExists {
+                GenerateError::AlreadyExists(path.clone())
+            } else {
+                GenerateError::Io(err)
+            }
+        })?;
 
     Ok(path)
 }
@@ -123,28 +108,97 @@ fn next_sequential(dir: &Path) -> Result<u16, GenerateError> {
 
     for entry in entries {
         let entry = entry?;
-        let filename = entry.file_name();
-        let filename = filename.to_string_lossy();
+        let raw_file_name = entry.file_name();
 
-        if !filename.ends_with(".sql") {
+        if !raw_file_name.as_encoded_bytes().ends_with(b".sql") {
             continue;
         }
 
-        let Some(version_str) = filename.split('_').next() else {
-            continue;
+        let Some(filename) = raw_file_name.to_str() else {
+            return Err(GenerateError::InvalidMigrationFile(entry.path()));
         };
 
-        if version_str.len() == 4
-            && version_str.chars().all(|c| c.is_ascii_digit())
-            && let Ok(v) = version_str.parse::<u16>()
-        {
-            max_version = Some(max_version.map_or(v, |max| max.max(v)));
+        match parse_migration_filename(filename) {
+            Some((VersionPrefix::Sequential(version), _)) => {
+                max_version = Some(max_version.map_or(version, |m| m.max(version)));
+            }
+            Some((VersionPrefix::Timestamp(_), _)) => {}
+            None => return Err(GenerateError::InvalidMigrationFile(entry.path())),
         }
     }
 
-    max_version.map_or(Ok(1), |v| {
-        v.checked_add(1).ok_or(GenerateError::SequentialOverflow)
-    })
+    match max_version {
+        None => Ok(1),
+        Some(MAX_SEQUENTIAL_VERSION) => Err(GenerateError::SequentialOverflow),
+        Some(version) => Ok(version + 1),
+    }
+}
+
+fn parse_migration_filename(filename: &str) -> Option<(VersionPrefix, &str)> {
+    let (version_str, name) = filename.strip_suffix(".sql")?.split_once('_')?;
+
+    if !is_valid_migration_name(name) {
+        return None;
+    }
+
+    if version_str.is_empty() || !version_str.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    match version_str.len() {
+        4 => {
+            let version = version_str.parse::<u16>().ok()?;
+
+            if version == 0 {
+                return None;
+            }
+
+            Some((VersionPrefix::Sequential(version), name))
+        }
+        14 => {
+            let version = version_str.parse::<u64>().ok()?;
+
+            if !is_valid_timestamp_version(version) {
+                return None;
+            }
+
+            Some((VersionPrefix::Timestamp(version), name))
+        }
+        _ => None,
+    }
+}
+
+fn is_valid_migration_name(name: &str) -> bool {
+    matches!(name.chars().next(), Some(first) if first.is_ascii_lowercase() || first.is_ascii_digit())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+fn is_valid_timestamp_version(version: u64) -> bool {
+    let (Ok(year), Ok(month), Ok(day)) = (
+        i16::try_from(version / 10_000_000_000),
+        i8::try_from(version / 100_000_000 % 100),
+        i8::try_from(version / 1_000_000 % 100),
+    ) else {
+        return false;
+    };
+
+    let (Ok(hour), Ok(minute), Ok(second)) = (
+        i8::try_from(version / 10_000 % 100),
+        i8::try_from(version / 100 % 100),
+        i8::try_from(version % 100),
+    ) else {
+        return false;
+    };
+
+    hour <= 23 && minute <= 59 && second <= 59 && Date::new(year, month, day).is_ok()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VersionPrefix {
+    Sequential(u16),
+    Timestamp(u64),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -156,7 +210,7 @@ pub enum MigrationPrefix {
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {
     #[error(
-        "invalid migration filename `{0}`: must start with a version prefix (4-digit sequential or 14-digit timestamp) followed by an underscore and a non-empty name"
+        "invalid migration filename `{0}`: must match `NNNN_name.sql` (sequential, 0001-{MAX_SEQUENTIAL_VERSION}) or `YYYYMMDDHHMMSS_name.sql` (timestamp) with a lowercase snake_case name"
     )]
     InvalidFilename(String),
 
@@ -185,17 +239,28 @@ pub enum MigrationError {
         actual_checksum: String,
     },
 
+    #[error("duplicate applied migration version {version} in backend history")]
+    DuplicateAppliedVersion { version: u64 },
+
     #[error(transparent)]
     Backend(#[from] anyhow::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum GenerateError {
-    #[error("no more sequential versions available (reached 9999)")]
+    #[error("no more sequential versions available (reached {MAX_SEQUENTIAL_VERSION})")]
     SequentialOverflow,
 
     #[error("migration file already exists at `{0}`")]
     AlreadyExists(PathBuf),
+
+    #[error("invalid migration name `{0}`: must be snake_case")]
+    InvalidName(String),
+
+    #[error(
+        "invalid migration filename `{0}`: must match `NNNN_name.sql` (sequential, 0001-{MAX_SEQUENTIAL_VERSION}) or `YYYYMMDDHHMMSS_name.sql` (timestamp)"
+    )]
+    InvalidMigrationFile(PathBuf),
 
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -240,14 +305,31 @@ mod tests {
     #[test]
     fn rejects_invalid_filenames() {
         let invalid = [
+            // missing or wrong extension
             "0001_create_users",
             "0001_create_users.txt",
+            "0001_create_users.SQL",
+            // malformed structure
             "0001create_users.sql",
             "0001_.sql",
+            "../x.sql",
+            // malformed versions
             "00a1_create_users.sql",
             "001_create_users.sql",
             "00001_create_users.sql",
             "202501011230450_short.sql",
+            "0000_zero.sql",
+            // invalid names
+            "0001_Add_users.sql",
+            "0001_add-users.sql",
+            "0001_na\u{ef}ve.sql",
+            "0001_../../escape.sql",
+            // impossible calendar values in timestamp versions
+            "20251301123045_impossible_month.sql",
+            "20250132123045_impossible_day.sql",
+            "20250101250000_impossible_hour.sql",
+            "20250101126000_impossible_minute.sql",
+            "20250101123061_impossible_second.sql",
         ];
 
         for filename in invalid {
@@ -262,13 +344,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_uppercase_extension() {
-        // The extension check is case-insensitive but `strip_suffix(".sql")` is
-        // not, so an uppercase extension is always rejected. This locks in the
-        // current behavior; revisit if case-insensitive handling is intended.
-        assert!(matches!(
-            Migration::try_new("0001_create_users.SQL", String::new()),
-            Err(MigrationError::InvalidFilename(_))
-        ));
+    fn accepts_valid_filenames() {
+        let valid = [
+            ("0001_a.sql", 1, "a"),
+            ("0001_2fast.sql", 1, "2fast"),
+            ("0001_add_users_2.sql", 1, "add_users_2"),
+            ("9999_final.sql", 9999, "final"),
+            (
+                "20250101123045_add_index.sql",
+                20_250_101_123_045,
+                "add_index",
+            ),
+        ];
+
+        for (filename, version, name) in valid {
+            let migration = Migration::try_new(filename, String::new()).unwrap();
+
+            assert_eq!(migration.version(), version, "version for `{filename}`");
+            assert_eq!(migration.name(), name, "name for `{filename}`");
+        }
     }
 }

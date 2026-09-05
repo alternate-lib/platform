@@ -31,10 +31,18 @@ impl<B: MigrationBackend> MigrationRunner<B> {
         self.backend.ensure_metadata_table().await?;
 
         let applied = self.backend.load_applied().await?;
-        let applied_by_version = applied
-            .iter()
-            .map(|migration| (migration.version, migration))
-            .collect::<BTreeMap<_, _>>();
+        let mut applied_by_version = BTreeMap::<u64, &AppliedMigration>::new();
+
+        for applied_migration in &applied {
+            if applied_by_version
+                .insert(applied_migration.version, applied_migration)
+                .is_some()
+            {
+                return Err(MigrationError::DuplicateAppliedVersion {
+                    version: applied_migration.version,
+                });
+            }
+        }
 
         let embedded_by_version = migrations
             .iter()
@@ -514,6 +522,26 @@ mod tests {
         assert!(matches!(
             result,
             Err(MigrationError::DirtyHistory { version: 2, .. })
+        ));
+        assert_eq!(backend.calls(), ["ensure_metadata_table", "load_applied"]);
+    }
+
+    #[tokio::test]
+    async fn runner_rejects_duplicate_applied_versions() {
+        let backend = FakeBackend {
+            applied: Rc::new(RefCell::new(vec![
+                applied(1, "a", "deadbeef".to_owned()),
+                applied(1, "b", "deadbeef".to_owned()),
+            ])),
+            ..FakeBackend::default()
+        };
+        let runner = MigrationRunner::new(backend.clone());
+
+        let result = runner.migrate_to_latest(vec![migration(1, "a")]).await;
+
+        assert!(matches!(
+            result,
+            Err(MigrationError::DuplicateAppliedVersion { version: 1 })
         ));
         assert_eq!(backend.calls(), ["ensure_metadata_table", "load_applied"]);
     }

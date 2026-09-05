@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use alternate_migration::{Migration, MigrationError, MigrationPrefix, generate};
+use alternate_migration::{GenerateError, Migration, MigrationPrefix, generate};
 
 fn temp_dir(name: &str) -> PathBuf {
     let dir =
@@ -36,16 +36,58 @@ fn sequential_increments_past_highest_version() {
 }
 
 #[test]
-fn sequential_ignores_non_sql_and_malformed_files() {
-    let dir = temp_dir("sequential-ignores-malformed");
+fn sequential_ignores_non_sql_files() {
+    let dir = temp_dir("sequential-ignores-non-sql");
     fs::write(dir.join("README.txt"), b"").unwrap();
-    fs::write(dir.join("notes.sql"), b"").unwrap();
-    fs::write(dir.join("foo_0001.sql"), b"").unwrap();
-    fs::write(dir.join("20250101123045_timestamp.sql"), b"").unwrap();
+    fs::write(dir.join("notes"), b"").unwrap();
 
     let path = generate(&dir, "first", MigrationPrefix::Sequential).unwrap();
 
     assert_eq!(path, dir.join("0001_first.sql"));
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn rejects_malformed_sql_files() {
+    let dir = temp_dir("rejects-malformed-sql");
+    fs::write(dir.join("notes.sql"), b"").unwrap();
+    fs::write(dir.join("001_short.sql"), b"").unwrap();
+    fs::write(dir.join("00001_long.sql"), b"").unwrap();
+    fs::write(dir.join("0000_zero.sql"), b"").unwrap();
+    fs::write(dir.join("0001_BadName.sql"), b"").unwrap();
+    fs::write(dir.join("65535_five_digits.sql"), b"").unwrap();
+
+    let result = generate(&dir, "first", MigrationPrefix::Sequential);
+
+    assert!(matches!(
+        result,
+        Err(GenerateError::InvalidMigrationFile(path)) if path.parent() == Some(dir.as_path())
+    ));
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn skips_timestamp_files_when_generating_sequential() {
+    let dir = temp_dir("sequential-skips-timestamps");
+    fs::write(dir.join("20250101123045_add_index.sql"), b"").unwrap();
+
+    let path = generate(&dir, "first", MigrationPrefix::Sequential).unwrap();
+
+    assert_eq!(path, dir.join("0001_first.sql"));
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn sequential_overflows_after_9999() {
+    let dir = temp_dir("sequential-overflows");
+    fs::write(dir.join("9999_final.sql"), b"").unwrap();
+
+    let result = generate(&dir, "beyond", MigrationPrefix::Sequential);
+
+    assert!(matches!(result, Err(GenerateError::SequentialOverflow)));
 
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -62,23 +104,49 @@ fn generate_creates_missing_directory() {
 }
 
 #[test]
-fn rejects_existing_file() {
-    let dir = temp_dir("rejects-existing-file");
-    // `next_sequential` only scans 4-digit prefixes, so a collision is only
-    // reachable past the scannable maximum: files `9999` and `10000` yield
-    // `next = 10000`, which already exists.
-    fs::write(dir.join("9999_add_users.sql"), b"").unwrap();
-    fs::write(dir.join("10000_create_users.sql"), b"").unwrap();
-    let expected = dir.join("10000_create_users.sql");
+fn rejects_invalid_names() {
+    let dir = temp_dir("rejects-invalid-names");
 
-    let result = generate(&dir, "create_users", MigrationPrefix::Sequential);
+    for name in ["Create Users", "Add-Users", "", "_private", "naïve"] {
+        assert!(
+            matches!(
+                generate(&dir, name, MigrationPrefix::Sequential),
+                Err(GenerateError::InvalidName(reported)) if reported == name
+            ),
+            "expected `{name}` to be rejected"
+        );
+    }
 
-    assert!(matches!(
-        result,
-        Err(alternate_migration::GenerateError::AlreadyExists(path)) if path == expected
-    ));
+    assert!(fs::read_dir(&dir).unwrap().next().is_none());
 
     fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn rejects_existing_file_without_modifying_it() {
+    let dir = temp_dir("rejects-existing-file-atomically");
+
+    for _ in 0..10 {
+        let timestamp = jiff::Timestamp::now().strftime("%Y%m%d%H%M%S").to_string();
+        let path = dir.join(format!("{timestamp}_create_users.sql"));
+        fs::write(&path, b"sentinel").unwrap();
+
+        match generate(&dir, "create_users", MigrationPrefix::Timestamp) {
+            Err(GenerateError::AlreadyExists(existing)) if existing == path => {
+                assert_eq!(fs::read_to_string(&path).unwrap(), "sentinel");
+
+                fs::remove_dir_all(&dir).unwrap();
+
+                return;
+            }
+            Ok(created) => {
+                fs::remove_file(created).unwrap();
+            }
+            Err(error) => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    panic!("failed to observe an AlreadyExists collision after 10 attempts");
 }
 
 #[test]
@@ -102,40 +170,25 @@ fn timestamp_prefix_uses_requested_name() {
 }
 
 #[test]
-fn documents_versions_above_9999_are_ignored() {
-    // `next_sequential` only scans 4-digit prefixes, so a 5-digit version
-    // like `65535` is invisible to it and cannot trigger `SequentialOverflow`
-    // (the scannable maximum is 9999, and 9999 + 1 still fits in `u16`).
-    // This test documents the current behavior; revisit if 5-digit files
-    // should participate in numbering.
-    let dir = temp_dir("documents-above-9999");
-    fs::write(dir.join("65535_final.sql"), b"").unwrap();
+fn generated_files_round_trip_through_try_new() {
+    let dir = temp_dir("generated-round-trip");
+    let path = generate(&dir, "create_users", MigrationPrefix::Sequential).unwrap();
 
-    let path = generate(&dir, "first", MigrationPrefix::Sequential).unwrap();
+    let migration =
+        Migration::try_new(path.file_name().unwrap().to_str().unwrap(), String::new()).unwrap();
 
-    assert_eq!(path, dir.join("0001_first.sql"));
+    assert_eq!(migration.version(), 1);
+    assert_eq!(migration.name(), "create_users");
 
     fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
-fn documents_sequential_names_past_9999() {
-    // `next_sequential` uses `u16::checked_add`, so a directory containing
-    // `9999_final.sql` produces `10000_final.sql` instead of returning
-    // `SequentialOverflow`. That filename is then rejected by
-    // `Migration::try_new`, so generated migrations past 9999 are unusable.
-    // This test documents the current behavior; revisit if the boundary
-    // should reject generation instead.
-    let dir = temp_dir("documents-past-9999");
-    fs::write(dir.join("9999_final.sql"), b"").unwrap();
+fn migration_error_displays_are_informative() {
+    let invalid = Migration::try_new("bad", String::new()).unwrap_err();
 
-    let path = generate(&dir, "beyond", MigrationPrefix::Sequential).unwrap();
-
-    assert_eq!(path, dir.join("10000_beyond.sql"));
-    assert!(matches!(
-        Migration::try_new("10000_beyond.sql", String::new()),
-        Err(MigrationError::InvalidFilename(_))
-    ));
-
-    fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        invalid.to_string(),
+        "invalid migration filename `bad`: must match `NNNN_name.sql` (sequential, 0001-9999) or `YYYYMMDDHHMMSS_name.sql` (timestamp) with a lowercase snake_case name"
+    );
 }
