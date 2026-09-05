@@ -8,6 +8,7 @@ pub use runner::*;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
+mod plan;
 mod runner;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
