@@ -21,11 +21,15 @@ impl<B: MigrationBackend> MigrationRunner<B> {
         self.run(migrations, false).await
     }
 
-    pub async fn sync_to_latest(&self, migrations: Vec<Migration>) -> Result<(), MigrationError> {
+    pub async fn record_to_latest(&self, migrations: Vec<Migration>) -> Result<(), MigrationError> {
         self.run(migrations, true).await
     }
 
-    async fn run(&self, migrations: Vec<Migration>, sync_only: bool) -> Result<(), MigrationError> {
+    async fn run(
+        &self,
+        migrations: Vec<Migration>,
+        record_only: bool,
+    ) -> Result<(), MigrationError> {
         let migrations = sort_migrations(migrations)?;
 
         self.backend.ensure_metadata_table().await?;
@@ -59,7 +63,7 @@ impl<B: MigrationBackend> MigrationRunner<B> {
 
             validate_pending_migration_version(migration.version, highest_applied_version)?;
 
-            if sync_only {
+            if record_only {
                 self.backend.record(&migration).await?;
             } else {
                 self.backend.apply(&migration).await?;
@@ -648,12 +652,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_records_pending_without_applying() {
+    async fn runner_records_pending_without_applying() {
         let backend = FakeBackend::default();
         let runner = MigrationRunner::new(backend.clone());
 
         runner
-            .sync_to_latest(vec![migration(2, "b"), migration(1, "a")])
+            .record_to_latest(vec![migration(2, "b"), migration(1, "a")])
             .await
             .unwrap();
 
@@ -669,7 +673,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_skips_applied_migrations() {
+    async fn runner_skips_applied_migrations_when_recording() {
         let first = migration(1, "a");
         let backend = FakeBackend {
             applied: Rc::new(RefCell::new(vec![applied_from(&first)])),
@@ -678,7 +682,7 @@ mod tests {
         let runner = MigrationRunner::new(backend.clone());
 
         runner
-            .sync_to_latest(vec![first, migration(2, "b")])
+            .record_to_latest(vec![first, migration(2, "b")])
             .await
             .unwrap();
 

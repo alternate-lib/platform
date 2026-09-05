@@ -288,7 +288,7 @@ async fn runner_sync_records_without_applying_sql() -> Result<(), Box<dyn std::e
     let probe = server.connect().await?;
 
     runner
-        .sync_to_latest(vec![migration(
+        .record_to_latest(vec![migration(
             1,
             "create_untouched",
             "CREATE TABLE untouched (id BIGINT);",
