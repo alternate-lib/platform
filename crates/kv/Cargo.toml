@@ -20,6 +20,7 @@ tokio-postgres = { version = "0.7.18", optional = true }
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
+alternate-migration = { workspace = true, features = ["postgres"] }
 testcontainers = "0.28.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "time"] }
 
