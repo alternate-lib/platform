@@ -7,6 +7,8 @@ pub use typed::{KvClientExpiryTyped, KvClientTyped, KvClientTypedError};
 pub mod postgres;
 #[cfg(feature = "redis")]
 pub mod redis;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
 #[cfg(feature = "typed")]
 mod typed;
 

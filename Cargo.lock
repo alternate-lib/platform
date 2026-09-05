@@ -68,7 +68,9 @@ dependencies = [
  "async-trait",
  "deadpool-postgres",
  "deadpool-redis",
+ "deadpool-sqlite",
  "redis",
+ "rusqlite",
  "rust-embed",
  "serde",
  "testcontainers",
@@ -738,6 +740,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2657f61fb1dd8bf37a8d51093cc7cee4e77125b22f7753f49b289f831bec2bae"
 dependencies = [
  "tokio",
+]
+
+[[package]]
+name = "deadpool-sqlite"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "008b02743f8fad68dc9bb2851c0a4a1d63190d8e3885c5dea20f8a0a2a6bff9a"
+dependencies = [
+ "deadpool",
+ "deadpool-sync",
+ "rusqlite",
+]
+
+[[package]]
+name = "deadpool-sync"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e385cc95d3d582c328b36d1ff90feac061102b001894b555e6b465a2e0eaabbf"
+dependencies = [
+ "deadpool-runtime",
 ]
 
 [[package]]
