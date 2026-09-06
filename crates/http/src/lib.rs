@@ -42,18 +42,6 @@ impl<HC: HttpClient> HttpExt for HC {
     }
 }
 
-#[async_trait::async_trait]
-pub trait DynHttpClient: Send + Sync {
-    async fn send(&self, request: Request<Bytes>) -> Result<Response<Bytes>, anyhow::Error>;
-}
-
-#[async_trait::async_trait]
-impl<HC: HttpClient> DynHttpClient for HC {
-    async fn send(&self, request: Request<Bytes>) -> Result<Response<Bytes>, anyhow::Error> {
-        HC::send(self, request).await.map_err(anyhow::Error::from)
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum HttpExtError<ClientErr: std::error::Error> {
     #[error("request: {0}")]

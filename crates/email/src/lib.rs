@@ -1,5 +1,3 @@
-use anyhow::Context as _;
-
 #[cfg(feature = "smtp")]
 pub mod smtp;
 
@@ -14,16 +12,4 @@ pub struct Email {
     pub to_address: String,
     pub subject: String,
     pub body: String,
-}
-
-#[async_trait::async_trait]
-pub trait DynEmailClient: Send + Sync {
-    async fn send(&self, email: Email) -> Result<(), anyhow::Error>;
-}
-
-#[async_trait::async_trait]
-impl<EC: EmailClient> DynEmailClient for EC {
-    async fn send(&self, email: Email) -> Result<(), anyhow::Error> {
-        EC::send(self, email).await.context("send email")
-    }
 }

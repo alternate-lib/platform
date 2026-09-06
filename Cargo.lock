@@ -25,8 +25,6 @@ dependencies = [
 name = "alternate-email"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "async-trait",
  "lettre",
  "reqwest 0.13.4",
  "testcontainers",
@@ -41,8 +39,6 @@ version = "0.1.0"
 dependencies = [
  "alternate-codec",
  "alternate-kv",
- "anyhow",
- "async-trait",
  "bytes",
  "http",
  "http-body-util",
@@ -64,8 +60,6 @@ version = "0.1.0"
 dependencies = [
  "alternate-codec",
  "alternate-migration",
- "anyhow",
- "async-trait",
  "deadpool-postgres",
  "deadpool-redis",
  "deadpool-sqlite",
@@ -113,8 +107,6 @@ dependencies = [
 name = "alternate-storage"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "async-trait",
  "reqwest 0.13.4",
  "rust-s3",
  "testcontainers",

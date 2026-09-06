@@ -7,8 +7,6 @@ edition = "2024"
 alternate-codec = { workspace = true, optional = true }
 alternate-kv = { workspace = true, optional = true }
 
-anyhow.workspace = true
-async-trait.workspace = true
 bytes = "1.12.1"
 http = "1.5.0"
 http-body-util = "0.1.5"
