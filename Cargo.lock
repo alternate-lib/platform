@@ -95,6 +95,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "alternate-queue"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "alternate-storage"
 version = "0.1.0"
 dependencies = [

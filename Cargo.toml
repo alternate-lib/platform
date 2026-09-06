@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/email", "crates/http", "crates/kv", "crates/migration", "crates/storage"]
+members = ["crates/email", "crates/http", "crates/kv", "crates/migration", "crates/queue", "crates/storage"]
 
 [workspace.dependencies]
 alternate-kv.path = "crates/kv"
@@ -14,8 +14,10 @@ jiff = "0.2.35"
 serde = "1.0.229"
 thiserror = "2.0.20"
 tracing = "0.1.44"
+uuid = { version = "1.26.0", features = ["v7"] }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 must_use_candidate = "allow"
+unused_async_trait_impl = "allow"
