@@ -1,11 +1,13 @@
 use std::fmt::Debug;
 
 use alternate_migration::Migration;
+pub use consumer::*;
 pub use producer::*;
 use rust_embed::RustEmbed;
 
 use crate::QueueError;
 
+mod consumer;
 mod producer;
 
 #[derive(RustEmbed)]
@@ -39,6 +41,9 @@ pub enum PostgresQueueError {
 
     #[error("message attributes could not be decoded: {0}")]
     Attributes(#[from] serde_json::Error),
+
+    #[error("attempt limit must not overflow")]
+    InvalidAttemptLimit,
 }
 
 #[cfg(test)]
