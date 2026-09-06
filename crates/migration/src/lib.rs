@@ -32,24 +32,16 @@ pub trait SyncMigrationBackend {
     fn record(&mut self, migration: &Migration) -> Result<(), Self::Error>;
 }
 
-pub trait AsyncMigrationBackend: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
+pub trait AsyncMigrationBackend {
+    type Error: std::error::Error;
 
-    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), Self::Error>>;
 
-    fn load_applied(
-        &mut self,
-    ) -> impl Future<Output = Result<Vec<AppliedMigration>, Self::Error>> + Send;
+    fn load_applied(&mut self) -> impl Future<Output = Result<Vec<AppliedMigration>, Self::Error>>;
 
-    fn apply(
-        &mut self,
-        migration: &Migration,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn apply(&mut self, migration: &Migration) -> impl Future<Output = Result<(), Self::Error>>;
 
-    fn record(
-        &mut self,
-        migration: &Migration,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn record(&mut self, migration: &Migration) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

@@ -3,8 +3,8 @@ use http::{Error as HttpError, Method, Request, Response};
 #[cfg(feature = "typed")]
 pub use typed::{HttpExtTyped, HttpTyped, HttpTypedError};
 
-#[cfg(feature = "cache")]
-pub mod cache;
+// #[cfg(feature = "cache")]
+// pub mod cache;
 #[cfg(feature = "reqwest")]
 pub mod reqwest;
 #[cfg(feature = "tower")]
@@ -12,20 +12,17 @@ pub mod tower;
 #[cfg(feature = "typed")]
 mod typed;
 
-pub trait HttpClient: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
+pub trait HttpClient {
+    type Error: std::error::Error;
 
     fn send(
         &self,
         request: Request<Bytes>,
-    ) -> impl Future<Output = Result<Response<Bytes>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Response<Bytes>, Self::Error>>;
 }
 
 pub trait HttpExt: HttpClient {
-    fn get(
-        &self,
-        url: &str,
-    ) -> impl Future<Output = Result<Bytes, HttpExtError<Self::Error>>> + Send;
+    fn get(&self, url: &str) -> impl Future<Output = Result<Bytes, HttpExtError<Self::Error>>>;
 }
 
 impl<HC: HttpClient> HttpExt for HC {

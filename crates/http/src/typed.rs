@@ -5,10 +5,10 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::{HttpClient, HttpExt, HttpExtError};
 
 pub trait HttpTyped<C: Codec>: HttpClient {
-    fn send_typed<U: Serialize + Send, V: DeserializeOwned>(
+    fn send_typed<U: Serialize, V: DeserializeOwned>(
         &self,
         request: Request<U>,
-    ) -> impl Future<Output = Result<Response<V>, HttpTypedError<C::Error, Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<Response<V>, HttpTypedError<C::Error, Self::Error>>>;
 }
 
 impl<HC: HttpClient, C: Codec> HttpTyped<C> for HC {
@@ -34,7 +34,7 @@ pub trait HttpExtTyped<C: Codec>: HttpExt {
     fn get_typed<V: DeserializeOwned>(
         &self,
         url: &str,
-    ) -> impl Future<Output = Result<V, HttpTypedError<C::Error, HttpExtError<Self::Error>>>> + Send;
+    ) -> impl Future<Output = Result<V, HttpTypedError<C::Error, HttpExtError<Self::Error>>>>;
 }
 
 impl<HC: HttpExt, C: Codec> HttpExtTyped<C> for HC {

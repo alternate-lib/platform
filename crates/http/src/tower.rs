@@ -63,7 +63,7 @@ impl<HC: HttpClient> HttpClientService<HC> {
 impl<HC: HttpClient + Clone + 'static> Service<Request<Bytes>> for HttpClientService<HC> {
     type Response = Response<Bytes>;
     type Error = HC::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))

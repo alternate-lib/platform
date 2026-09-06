@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, error::Error, future::Future, time::Duration};
+use std::{collections::BTreeMap, future::Future, time::Duration};
 
 use jiff::Timestamp;
 
@@ -7,25 +7,25 @@ mod fake;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
-pub trait QueueProducer: Send + Sync {
-    type MessageId: Send + 'static;
-    type Error: Error + Send + Sync + 'static;
+pub trait QueueProducer {
+    type MessageId;
+    type Error: std::error::Error;
 
     fn send(
         &self,
         message: QueueMessage,
-    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>>;
 }
 
-pub trait QueueConsumer: Send + Sync {
-    type Receipt: Send + Sync + 'static;
-    type Error: Error + Send + Sync + 'static;
+pub trait QueueConsumer {
+    type Receipt;
+    type Error: std::error::Error;
 
     fn receive(
         &self,
-    ) -> impl Future<Output = Result<Option<QueueDelivery<Self::Receipt>>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Option<QueueDelivery<Self::Receipt>>, Self::Error>>;
 
-    fn ack(&self, receipt: Self::Receipt) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn ack(&self, receipt: Self::Receipt) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +55,7 @@ pub struct QueueDelivery<R> {
 }
 
 pub trait QueueLeaseReclaim: QueueConsumer {
-    fn reclaim(&self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
+    fn reclaim(&self) -> impl Future<Output = Result<usize, Self::Error>>;
 }
 
 pub trait QueueLeaseRenewal: QueueConsumer {
@@ -63,7 +63,7 @@ pub trait QueueLeaseRenewal: QueueConsumer {
         &self,
         receipt: &Self::Receipt,
         visibility: Duration,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
 pub trait QueueRejection: QueueConsumer {
@@ -71,7 +71,7 @@ pub trait QueueRejection: QueueConsumer {
         &self,
         receipt: Self::Receipt,
         action: RejectAction,
-    ) -> impl Future<Output = Result<RejectOutcome, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<RejectOutcome, Self::Error>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,11 +94,11 @@ pub trait QueueScheduled: QueueProducer {
         &self,
         message: QueueMessage,
         run_at: Timestamp,
-    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>>;
 }
 
 pub trait QueueScheduledPromotion: QueueConsumer {
-    fn promote(&self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
+    fn promote(&self) -> impl Future<Output = Result<usize, Self::Error>>;
 }
 
 #[derive(Debug, thiserror::Error)]

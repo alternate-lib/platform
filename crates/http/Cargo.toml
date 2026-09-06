@@ -10,8 +10,8 @@ alternate-kv = { workspace = true, optional = true }
 bytes = "1.12.1"
 http = "1.5.0"
 http-body-util = "0.1.5"
-http-cache = { version = "1.0.0-alpha.7", optional = true }
-http-cache-semantics = { version = "3.0.0", optional = true }
+# http-cache = { version = "1.0.0-alpha.7", optional = true }
+# http-cache-semantics = { version = "3.0.0", optional = true }
 reqwest = { version = "0.13.4", optional = true }
 serde = { workspace = true, optional = true }
 thiserror.workspace = true
@@ -25,7 +25,7 @@ tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "t
 
 [features]
 default = ["tracing", "typed"]
-cache = ["dep:alternate-codec", "dep:alternate-kv", "dep:http-cache", "dep:http-cache-semantics"]
+# cache = ["dep:alternate-codec", "dep:alternate-kv", "dep:http-cache", "dep:http-cache-semantics"]
 reqwest = ["dep:reqwest"]
 tower = ["dep:tower"]
 tracing = ["dep:tracing"]

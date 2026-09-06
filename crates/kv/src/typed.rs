@@ -9,13 +9,13 @@ pub trait KvTyped<C: Codec>: KvClient {
     fn get_typed<V: DeserializeOwned>(
         &self,
         key: &str,
-    ) -> impl Future<Output = Result<Option<V>, KvTypedError<C::Error, Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<Option<V>, KvTypedError<C::Error, Self::Error>>>;
 
-    fn set_typed<V: Serialize + Sync>(
+    fn set_typed<V: Serialize>(
         &self,
         key: &str,
         value: &V,
-    ) -> impl Future<Output = Result<(), KvTypedError<C::Error, Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<(), KvTypedError<C::Error, Self::Error>>>;
 }
 
 impl<KC: KvClient, C: Codec> KvTyped<C> for KC {
@@ -43,12 +43,12 @@ impl<KC: KvClient, C: Codec> KvTyped<C> for KC {
 }
 
 pub trait KvExpiryTyped<C: Codec>: KvExpiry {
-    fn set_with_ttl_typed<V: Serialize + Send>(
+    fn set_with_ttl_typed<V: Serialize>(
         &self,
         key: &str,
         value: V,
         ttl: Duration,
-    ) -> impl Future<Output = Result<(), KvTypedError<C::Error, Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<(), KvTypedError<C::Error, Self::Error>>>;
 }
 
 impl<KC: KvExpiry, C: Codec> KvExpiryTyped<C> for KC {

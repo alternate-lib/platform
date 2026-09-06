@@ -12,16 +12,16 @@ pub mod sqlite;
 #[cfg(feature = "typed")]
 mod typed;
 
-pub trait KvClient: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
+pub trait KvClient {
+    type Error: std::error::Error;
 
-    fn get(&self, key: &str) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + Send;
+    fn get(&self, key: &str) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>>;
 
-    fn exists(&self, key: &str) -> impl Future<Output = Result<bool, Self::Error>> + Send;
+    fn exists(&self, key: &str) -> impl Future<Output = Result<bool, Self::Error>>;
 
-    fn set(&self, key: &str, value: &[u8]) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn set(&self, key: &str, value: &[u8]) -> impl Future<Output = Result<(), Self::Error>>;
 
-    fn delete(&self, key: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn delete(&self, key: &str) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
 pub trait KvExpiry: KvClient {
@@ -30,5 +30,5 @@ pub trait KvExpiry: KvClient {
         key: &str,
         value: &[u8],
         ttl: Duration,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>>;
 }
