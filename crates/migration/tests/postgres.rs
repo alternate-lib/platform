@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use alternate_migration::{
-    AsyncMigrationBackend, AsyncMigrationRunner, Migration, MigrationError,
-    postgres::PostgresBackend,
+    AsyncMigrationBackend, AsyncMigrationRunner, Migration,
+    postgres::{PostgresBackend, PostgresBackendError},
 };
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt as _, core::IntoContainerPort, runners::AsyncRunner,
@@ -221,7 +221,7 @@ async fn rolls_back_failed_migration() -> Result<(), Box<dyn std::error::Error>>
 
     let result = backend.apply(&migration).await;
 
-    assert!(matches!(result, Err(MigrationError::Backend(_))));
+    assert!(matches!(result, Err(PostgresBackendError::Client(_))));
     assert!(!table_exists(&probe, "rollback_probe").await?);
     assert_eq!(
         backend.load_applied().await?,

@@ -3,8 +3,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use alternate_migration::{
-    Migration, MigrationError, SyncMigrationBackend, SyncMigrationRunner,
-    sqlite::SqliteMigrationBackend,
+    Migration, MigrationPlannerError, MigrationRunnerError, SyncMigrationBackend,
+    SyncMigrationRunner,
+    sqlite::{SqliteBackendError, SqliteMigrationBackend},
 };
 use jiff::{Span, Timestamp};
 use rusqlite::{Connection, OpenFlags};
@@ -170,7 +171,7 @@ fn rolls_back_failed_migration() {
 
     let result = backend.apply(&migration);
 
-    assert!(matches!(result, Err(MigrationError::Backend(_))));
+    assert!(matches!(result, Err(SqliteBackendError::Client(_))));
     assert!(!table_exists(&probe, "rollback_probe"));
     assert_eq!(backend.load_applied().unwrap(), []);
 }
@@ -273,7 +274,9 @@ fn runner_rejects_checksum_mismatch() {
 
     assert!(matches!(
         result,
-        Err(MigrationError::ChecksumMismatch { version: 1, .. })
+        Err(MigrationRunnerError::Planner(
+            MigrationPlannerError::ChecksumMismatch { version: 1, .. }
+        ))
     ));
     assert!(table_exists(&probe, "first"));
 }

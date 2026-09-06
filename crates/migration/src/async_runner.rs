@@ -1,4 +1,4 @@
-use crate::{AsyncMigrationBackend, Migration, MigrationError, plan::plan_migrations};
+use crate::{AsyncMigrationBackend, Migration, MigrationRunnerError, plan::plan_migrations};
 
 #[derive(Clone, Debug)]
 pub struct AsyncMigrationRunner<B> {
@@ -15,14 +15,14 @@ impl<B: AsyncMigrationBackend> AsyncMigrationRunner<B> {
     pub async fn migrate_to_latest(
         &mut self,
         migrations: Vec<Migration>,
-    ) -> Result<(), MigrationError> {
+    ) -> Result<(), MigrationRunnerError<B::Error>> {
         self.run(migrations, false).await
     }
 
     pub async fn record_to_latest(
         &mut self,
         migrations: Vec<Migration>,
-    ) -> Result<(), MigrationError> {
+    ) -> Result<(), MigrationRunnerError<B::Error>> {
         self.run(migrations, true).await
     }
 
@@ -30,17 +30,30 @@ impl<B: AsyncMigrationBackend> AsyncMigrationRunner<B> {
         &mut self,
         migrations: Vec<Migration>,
         record_only: bool,
-    ) -> Result<(), MigrationError> {
-        self.backend.ensure_metadata_table().await?;
+    ) -> Result<(), MigrationRunnerError<B::Error>> {
+        self.backend
+            .ensure_metadata_table()
+            .await
+            .map_err(MigrationRunnerError::Backend)?;
 
-        let applied = self.backend.load_applied().await?;
+        let applied = self
+            .backend
+            .load_applied()
+            .await
+            .map_err(MigrationRunnerError::Backend)?;
         let pending = plan_migrations(&applied, migrations)?;
 
         for migration in pending {
             if record_only {
-                self.backend.record(&migration).await?;
+                self.backend
+                    .record(&migration)
+                    .await
+                    .map_err(MigrationRunnerError::Backend)?;
             } else {
-                self.backend.apply(&migration).await?;
+                self.backend
+                    .apply(&migration)
+                    .await
+                    .map_err(MigrationRunnerError::Backend)?;
             }
         }
 
@@ -50,13 +63,13 @@ impl<B: AsyncMigrationBackend> AsyncMigrationRunner<B> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::{Cell, RefCell},
-        rc::Rc,
-    };
+    use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
     use super::*;
-    use crate::test_utils::{FakeBackend, applied, applied_from, migration};
+    use crate::{
+        plan::MigrationPlannerError,
+        test_utils::{FakeBackend, applied, applied_from, migration},
+    };
 
     #[tokio::test]
     async fn runner_applies_pending_in_sorted_order() {
@@ -83,7 +96,7 @@ mod tests {
     async fn runner_skips_applied_migrations() {
         let first = migration(1, "a");
         let backend = FakeBackend {
-            applied: Rc::new(RefCell::new(vec![applied_from(&first)])),
+            applied: Arc::new(RwLock::new(vec![applied_from(&first)])),
             ..FakeBackend::default()
         };
         let mut runner = AsyncMigrationRunner::new(backend.clone());
@@ -104,7 +117,7 @@ mod tests {
         let migrations = vec![migration(1, "a"), migration(2, "b")];
         let applied = migrations.iter().map(applied_from).collect::<Vec<_>>();
         let backend = FakeBackend {
-            applied: Rc::new(RefCell::new(applied)),
+            applied: Arc::new(RwLock::new(applied)),
             ..FakeBackend::default()
         };
         let mut runner = AsyncMigrationRunner::new(backend.clone());
@@ -135,7 +148,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MigrationError::DuplicateVersion { version: 1, .. })
+            Err(MigrationRunnerError::Planner(
+                MigrationPlannerError::DuplicateVersion { version: 1, .. }
+            ))
         ));
         assert_eq!(backend.calls(), ["ensure_metadata_table", "load_applied"]);
     }
@@ -143,7 +158,7 @@ mod tests {
     #[tokio::test]
     async fn runner_rejects_dirty_history_before_applying() {
         let backend = FakeBackend {
-            applied: Rc::new(RefCell::new(vec![applied(
+            applied: Arc::new(RwLock::new(vec![applied(
                 2,
                 "legacy",
                 "deadbeef".to_owned(),
@@ -156,7 +171,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MigrationError::DirtyHistory { version: 2, .. })
+            Err(MigrationRunnerError::Planner(
+                MigrationPlannerError::DirtyHistory { version: 2, .. }
+            ))
         ));
         assert_eq!(backend.calls(), ["ensure_metadata_table", "load_applied"]);
     }
@@ -164,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn runner_stops_at_first_failed_apply() {
         let backend = FakeBackend {
-            fail_apply_versions: Rc::new(RefCell::new(vec![2])),
+            fail_apply_versions: Arc::new(RwLock::new(vec![2])),
             ..FakeBackend::default()
         };
         let mut runner = AsyncMigrationRunner::new(backend.clone());
@@ -177,7 +194,7 @@ mod tests {
             ])
             .await;
 
-        assert!(matches!(result, Err(MigrationError::Backend(_))));
+        assert!(matches!(result, Err(MigrationRunnerError::Backend(_))));
         assert_eq!(
             backend.calls(),
             [
@@ -192,28 +209,28 @@ mod tests {
     #[tokio::test]
     async fn runner_propagates_ensure_failure() {
         let backend = FakeBackend {
-            fail_ensure_metadata_table: Rc::new(Cell::new(true)),
+            fail_ensure_metadata_table: Arc::new(AtomicBool::new(true)),
             ..FakeBackend::default()
         };
         let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         let result = runner.migrate_to_latest(vec![migration(1, "a")]).await;
 
-        assert!(matches!(result, Err(MigrationError::Backend(_))));
+        assert!(matches!(result, Err(MigrationRunnerError::Backend(_))));
         assert_eq!(backend.calls(), ["ensure_metadata_table"]);
     }
 
     #[tokio::test]
     async fn runner_propagates_load_failure() {
         let backend = FakeBackend {
-            fail_load_applied: Rc::new(Cell::new(true)),
+            fail_load_applied: Arc::new(AtomicBool::new(true)),
             ..FakeBackend::default()
         };
         let mut runner = AsyncMigrationRunner::new(backend.clone());
 
         let result = runner.migrate_to_latest(vec![migration(1, "a")]).await;
 
-        assert!(matches!(result, Err(MigrationError::Backend(_))));
+        assert!(matches!(result, Err(MigrationRunnerError::Backend(_))));
         assert_eq!(backend.calls(), ["ensure_metadata_table", "load_applied"]);
     }
 
@@ -242,7 +259,7 @@ mod tests {
     async fn runner_skips_applied_migrations_when_recording() {
         let first = migration(1, "a");
         let backend = FakeBackend {
-            applied: Rc::new(RefCell::new(vec![applied_from(&first)])),
+            applied: Arc::new(RwLock::new(vec![applied_from(&first)])),
             ..FakeBackend::default()
         };
         let mut runner = AsyncMigrationRunner::new(backend.clone());

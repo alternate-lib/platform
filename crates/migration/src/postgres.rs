@@ -1,7 +1,6 @@
-use anyhow::Context as _;
 use tokio_postgres::{Client, Row};
 
-use crate::{AppliedMigration, AsyncMigrationBackend, Migration, MigrationError};
+use crate::{AppliedMigration, AsyncMigrationBackend, Migration};
 
 const DEFAULT_TABLE_NAME: &str = "_alternate_migrations";
 
@@ -27,7 +26,9 @@ impl PostgresBackend {
 }
 
 impl AsyncMigrationBackend for PostgresBackend {
-    async fn ensure_metadata_table(&self) -> Result<(), MigrationError> {
+    type Error = PostgresBackendError;
+
+    async fn ensure_metadata_table(&self) -> Result<(), Self::Error> {
         let create_sql = format!(
             r"CREATE TABLE IF NOT EXISTS {table_name} (
                 version BIGINT PRIMARY KEY,
@@ -38,15 +39,12 @@ impl AsyncMigrationBackend for PostgresBackend {
             table_name = self.table_name,
         );
 
-        self.client
-            .batch_execute(&create_sql)
-            .await
-            .context("create migrations table")?;
+        self.client.batch_execute(&create_sql).await?;
 
         Ok(())
     }
 
-    async fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, MigrationError> {
+    async fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, Self::Error> {
         let select_sql = format!(
             r"SELECT version, name, checksum, applied_at
                 FROM {table_name}
@@ -54,26 +52,16 @@ impl AsyncMigrationBackend for PostgresBackend {
             table_name = self.table_name,
         );
 
-        let rows = self
-            .client
-            .query(&select_sql, &[])
-            .await
-            .context("select applied migrations")?;
+        let rows = self.client.query(&select_sql, &[]).await?;
         let migrations = rows.into_iter().map(Into::into).collect();
 
         Ok(migrations)
     }
 
-    async fn apply(&mut self, migration: &Migration) -> Result<(), MigrationError> {
-        let tx = self
-            .client
-            .transaction()
-            .await
-            .map_err(anyhow::Error::from)?;
+    async fn apply(&mut self, migration: &Migration) -> Result<(), Self::Error> {
+        let tx = self.client.transaction().await?;
 
-        tx.batch_execute(&migration.sql)
-            .await
-            .with_context(|| format!("apply migration: {}", migration.version()))?;
+        tx.batch_execute(&migration.sql).await?;
 
         let insert_sql = format!(
             r"INSERT INTO {table_name} (version, name, checksum)
@@ -89,15 +77,14 @@ impl AsyncMigrationBackend for PostgresBackend {
                 &migration.checksum,
             ],
         )
-        .await
-        .with_context(|| format!("record migration: {}", migration.version()))?;
+        .await?;
 
-        tx.commit().await.map_err(anyhow::Error::from)?;
+        tx.commit().await?;
 
         Ok(())
     }
 
-    async fn record(&mut self, migration: &Migration) -> Result<(), MigrationError> {
+    async fn record(&mut self, migration: &Migration) -> Result<(), Self::Error> {
         let insert_sql = format!(
             r"INSERT INTO {table_name} (version, name, checksum)
                 VALUES ($1, $2, $3)",
@@ -113,8 +100,7 @@ impl AsyncMigrationBackend for PostgresBackend {
                     &migration.checksum,
                 ],
             )
-            .await
-            .with_context(|| format!("record migration: {}", migration.version()))?;
+            .await?;
 
         Ok(())
     }
@@ -129,4 +115,10 @@ impl From<Row> for AppliedMigration {
             applied_at: row.get("applied_at"),
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PostgresBackendError {
+    #[error(transparent)]
+    Client(#[from] tokio_postgres::Error),
 }

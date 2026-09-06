@@ -5,6 +5,7 @@ use std::{
 
 pub use async_runner::*;
 use jiff::{Timestamp, civil::Date};
+pub use plan::MigrationPlannerError;
 pub use sync_runner::*;
 
 mod async_runner;
@@ -20,26 +21,35 @@ mod test_utils;
 const MAX_SEQUENTIAL_VERSION: u16 = 9999;
 
 pub trait SyncMigrationBackend {
-    fn ensure_metadata_table(&mut self) -> Result<(), MigrationError>;
+    type Error: std::error::Error;
 
-    fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, MigrationError>;
+    fn ensure_metadata_table(&mut self) -> Result<(), Self::Error>;
 
-    fn apply(&mut self, migration: &Migration) -> Result<(), MigrationError>;
+    fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, Self::Error>;
 
-    fn record(&mut self, migration: &Migration) -> Result<(), MigrationError>;
+    fn apply(&mut self, migration: &Migration) -> Result<(), Self::Error>;
+
+    fn record(&mut self, migration: &Migration) -> Result<(), Self::Error>;
 }
 
-pub trait AsyncMigrationBackend {
-    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), MigrationError>>;
+pub trait AsyncMigrationBackend: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     fn load_applied(
         &mut self,
-    ) -> impl Future<Output = Result<Vec<AppliedMigration>, MigrationError>>;
+    ) -> impl Future<Output = Result<Vec<AppliedMigration>, Self::Error>> + Send;
 
-    fn apply(&mut self, migration: &Migration) -> impl Future<Output = Result<(), MigrationError>>;
+    fn apply(
+        &mut self,
+        migration: &Migration,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
-    fn record(&mut self, migration: &Migration)
-    -> impl Future<Output = Result<(), MigrationError>>;
+    fn record(
+        &mut self,
+        migration: &Migration,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -233,37 +243,15 @@ pub enum MigrationError {
         "invalid migration filename `{0}`: must match `NNNN_name.sql` (sequential, 0001-{MAX_SEQUENTIAL_VERSION}) or `YYYYMMDDHHMMSS_name.sql` (timestamp) with a lowercase snake_case name"
     )]
     InvalidFilename(String),
+}
 
-    #[error("duplicate migration version {version}: `{name}` and `{previous_name}`")]
-    DuplicateVersion {
-        version: u64,
-        name: String,
-        previous_name: String,
-    },
-
-    #[error("applied migration {version} (`{name}`) is missing from the incoming migration set")]
-    DirtyHistory { version: u64, name: String },
-
-    #[error(
-        "cannot apply older migration {version} after newer version {highest_applied} is already applied"
-    )]
-    OutOfOrder { version: u64, highest_applied: u64 },
-
-    #[error(
-        "migration checksum mismatch for {version} (`{name}`): expected {expected_checksum}, got {actual_checksum}"
-    )]
-    ChecksumMismatch {
-        version: u64,
-        name: String,
-        expected_checksum: String,
-        actual_checksum: String,
-    },
-
-    #[error("duplicate applied migration version {version} in backend history")]
-    DuplicateAppliedVersion { version: u64 },
-
+#[derive(Debug, thiserror::Error)]
+pub enum MigrationRunnerError<BackendErr: std::error::Error> {
     #[error(transparent)]
-    Backend(#[from] anyhow::Error),
+    Planner(#[from] MigrationPlannerError),
+
+    #[error("backend: {0}")]
+    Backend(BackendErr),
 }
 
 #[derive(Debug, thiserror::Error)]

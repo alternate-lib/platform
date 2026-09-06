@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
-use crate::{AppliedMigration, Migration, MigrationError};
+use crate::{AppliedMigration, Migration};
 
 pub(crate) fn plan_migrations(
     applied: &[AppliedMigration],
     migrations: Vec<Migration>,
-) -> Result<Vec<Migration>, MigrationError> {
+) -> Result<Vec<Migration>, MigrationPlannerError> {
     let migrations = sort_migrations(migrations)?;
 
     let mut applied_by_version = BTreeMap::<u64, &AppliedMigration>::new();
@@ -15,7 +15,7 @@ pub(crate) fn plan_migrations(
             .insert(applied_migration.version, applied_migration)
             .is_some()
         {
-            return Err(MigrationError::DuplicateAppliedVersion {
+            return Err(MigrationPlannerError::DuplicateAppliedVersion {
                 version: applied_migration.version,
             });
         }
@@ -43,7 +43,9 @@ pub(crate) fn plan_migrations(
     Ok(pending)
 }
 
-fn sort_migrations(mut migrations: Vec<Migration>) -> Result<Vec<Migration>, MigrationError> {
+fn sort_migrations(
+    mut migrations: Vec<Migration>,
+) -> Result<Vec<Migration>, MigrationPlannerError> {
     migrations.sort_unstable_by_key(|migration| migration.version);
 
     for migrations in migrations.windows(2) {
@@ -52,7 +54,7 @@ fn sort_migrations(mut migrations: Vec<Migration>) -> Result<Vec<Migration>, Mig
         };
 
         if migration.version == previous_migration.version {
-            return Err(MigrationError::DuplicateVersion {
+            return Err(MigrationPlannerError::DuplicateVersion {
                 version: migration.version,
                 name: migration.name.clone(),
                 previous_name: previous_migration.name.clone(),
@@ -66,17 +68,17 @@ fn sort_migrations(mut migrations: Vec<Migration>) -> Result<Vec<Migration>, Mig
 fn validate_applied_history(
     applied_by_version: &BTreeMap<u64, &AppliedMigration>,
     embedded_by_version: &BTreeMap<u64, &Migration>,
-) -> Result<(), MigrationError> {
+) -> Result<(), MigrationPlannerError> {
     for applied_migration in applied_by_version.values() {
         let Some(embedded_migration) = embedded_by_version.get(&applied_migration.version) else {
-            return Err(MigrationError::DirtyHistory {
+            return Err(MigrationPlannerError::DirtyHistory {
                 version: applied_migration.version,
                 name: applied_migration.name.clone(),
             });
         };
 
         if applied_migration.checksum != embedded_migration.checksum {
-            return Err(MigrationError::ChecksumMismatch {
+            return Err(MigrationPlannerError::ChecksumMismatch {
                 version: applied_migration.version,
                 name: embedded_migration.name.clone(),
                 expected_checksum: embedded_migration.checksum.clone(),
@@ -91,11 +93,11 @@ fn validate_applied_history(
 fn validate_pending_migration_version(
     version: u64,
     highest_applied_version: Option<u64>,
-) -> Result<(), MigrationError> {
+) -> Result<(), MigrationPlannerError> {
     if let Some(highest_applied_version) = highest_applied_version
         && version < highest_applied_version
     {
-        return Err(MigrationError::OutOfOrder {
+        return Err(MigrationPlannerError::OutOfOrder {
             version,
             highest_applied: highest_applied_version,
         });
@@ -104,12 +106,43 @@ fn validate_pending_migration_version(
     Ok(())
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum MigrationPlannerError {
+    #[error("duplicate migration version {version}: `{name}` and `{previous_name}`")]
+    DuplicateVersion {
+        version: u64,
+        name: String,
+        previous_name: String,
+    },
+
+    #[error("applied migration {version} (`{name}`) is missing from the incoming migration set")]
+    DirtyHistory { version: u64, name: String },
+
+    #[error(
+        "cannot apply older migration {version} after newer version {highest_applied} is already applied"
+    )]
+    OutOfOrder { version: u64, highest_applied: u64 },
+
+    #[error(
+        "migration checksum mismatch for {version} (`{name}`): expected {expected_checksum}, got {actual_checksum}"
+    )]
+    ChecksumMismatch {
+        version: u64,
+        name: String,
+        expected_checksum: String,
+        actual_checksum: String,
+    },
+
+    #[error("duplicate applied migration version {version} in backend history")]
+    DuplicateAppliedVersion { version: u64 },
+}
+
 #[cfg(test)]
 mod tests {
     use jiff::Timestamp;
 
     use super::*;
-    use crate::{AppliedMigration, Migration, MigrationError};
+    use crate::{AppliedMigration, Migration};
 
     fn migration(version: u16, name: &str) -> Migration {
         Migration::try_new(
@@ -169,7 +202,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MigrationError::DuplicateVersion { version: 1, .. })
+            Err(MigrationPlannerError::DuplicateVersion { version: 1, .. })
         ));
     }
 
@@ -200,7 +233,7 @@ mod tests {
 
         assert!(matches!(
             validate_applied_history(&applied_by_version, &embedded),
-            Err(MigrationError::DirtyHistory {
+            Err(MigrationPlannerError::DirtyHistory {
                 version: 2,
                 name
             }) if name == "legacy"
@@ -216,7 +249,7 @@ mod tests {
 
         assert!(matches!(
             validate_applied_history(&applied_by_version, &embedded),
-            Err(MigrationError::ChecksumMismatch {
+            Err(MigrationPlannerError::ChecksumMismatch {
                 version: 1,
                 expected_checksum,
                 actual_checksum,
@@ -240,7 +273,7 @@ mod tests {
     fn validate_pending_version_rejects_out_of_order() {
         assert!(matches!(
             validate_pending_migration_version(1, Some(2)),
-            Err(MigrationError::OutOfOrder {
+            Err(MigrationPlannerError::OutOfOrder {
                 version: 1,
                 highest_applied: 2
             })
@@ -290,7 +323,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MigrationError::DuplicateAppliedVersion { version: 1 })
+            Err(MigrationPlannerError::DuplicateAppliedVersion { version: 1 })
         ));
     }
 
@@ -303,7 +336,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MigrationError::DirtyHistory { version: 2, .. })
+            Err(MigrationPlannerError::DirtyHistory { version: 2, .. })
         ));
     }
 
@@ -318,7 +351,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MigrationError::ChecksumMismatch { version: 1, .. })
+            Err(MigrationPlannerError::ChecksumMismatch { version: 1, .. })
         ));
     }
 
@@ -333,7 +366,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MigrationError::OutOfOrder {
+            Err(MigrationPlannerError::OutOfOrder {
                 version: 1,
                 highest_applied: 2
             })

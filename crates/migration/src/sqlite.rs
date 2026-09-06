@@ -1,7 +1,6 @@
-use anyhow::Context as _;
 use rusqlite::{Connection, Row, params};
 
-use crate::{AppliedMigration, Migration, MigrationError, SyncMigrationBackend};
+use crate::{AppliedMigration, Migration, SyncMigrationBackend};
 
 const DEFAULT_TABLE_NAME: &str = "_alternate_migrations";
 
@@ -26,7 +25,9 @@ impl SqliteMigrationBackend {
 }
 
 impl SyncMigrationBackend for SqliteMigrationBackend {
-    fn ensure_metadata_table(&mut self) -> Result<(), MigrationError> {
+    type Error = SqliteBackendError;
+
+    fn ensure_metadata_table(&mut self) -> Result<(), Self::Error> {
         let conn = &self.conn;
 
         let create_sql = format!(
@@ -39,13 +40,12 @@ impl SyncMigrationBackend for SqliteMigrationBackend {
             table_name = self.table_name,
         );
 
-        conn.execute_batch(&create_sql)
-            .context("create migrations table")?;
+        conn.execute_batch(&create_sql)?;
 
         Ok(())
     }
 
-    fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, MigrationError> {
+    fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, Self::Error> {
         let conn = &self.conn;
 
         let select_sql = format!(
@@ -55,23 +55,18 @@ impl SyncMigrationBackend for SqliteMigrationBackend {
             table_name = self.table_name,
         );
 
-        let mut stmt = conn
-            .prepare(&select_sql)
-            .context("select applied migrations")?;
+        let mut stmt = conn.prepare(&select_sql)?;
         let migrations = stmt
-            .query_map([], applied_migration_from_row)
-            .context("query applied migrations")?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .context("read applied migrations")?;
+            .query_map([], applied_migration_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
 
         Ok(migrations)
     }
 
-    fn apply(&mut self, migration: &Migration) -> Result<(), MigrationError> {
-        let tx = self.conn.transaction().context("begin transaction")?;
+    fn apply(&mut self, migration: &Migration) -> Result<(), Self::Error> {
+        let tx = self.conn.transaction()?;
 
-        tx.execute_batch(&migration.sql)
-            .with_context(|| format!("apply migration: {}", migration.version()))?;
+        tx.execute_batch(&migration.sql)?;
 
         let insert_sql = format!(
             r"INSERT INTO {table_name} (version, name, checksum)
@@ -86,15 +81,14 @@ impl SyncMigrationBackend for SqliteMigrationBackend {
                 migration.name(),
                 migration.checksum
             ],
-        )
-        .with_context(|| format!("record migration: {}", migration.version()))?;
+        )?;
 
-        tx.commit().context("commit transaction")?;
+        tx.commit()?;
 
         Ok(())
     }
 
-    fn record(&mut self, migration: &Migration) -> Result<(), MigrationError> {
+    fn record(&mut self, migration: &Migration) -> Result<(), Self::Error> {
         let conn = &self.conn;
 
         let insert_sql = format!(
@@ -110,8 +104,7 @@ impl SyncMigrationBackend for SqliteMigrationBackend {
                 migration.name(),
                 migration.checksum
             ],
-        )
-        .with_context(|| format!("record migration: {}", migration.version()))?;
+        )?;
 
         Ok(())
     }
@@ -124,4 +117,10 @@ fn applied_migration_from_row(row: &Row<'_>) -> rusqlite::Result<AppliedMigratio
         checksum: row.get("checksum")?,
         applied_at: row.get("applied_at")?,
     })
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SqliteBackendError {
+    #[error(transparent)]
+    Client(#[from] rusqlite::Error),
 }

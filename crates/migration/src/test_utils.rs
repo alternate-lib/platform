@@ -1,13 +1,11 @@
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
+use std::sync::{
+    Arc, RwLock,
+    atomic::{AtomicBool, Ordering},
 };
 
 use jiff::Timestamp;
 
-use crate::{
-    AppliedMigration, AsyncMigrationBackend, Migration, MigrationError, SyncMigrationBackend,
-};
+use crate::{AppliedMigration, AsyncMigrationBackend, Migration, SyncMigrationBackend};
 
 pub(crate) fn migration(version: u16, name: &str) -> Migration {
     Migration::try_new(
@@ -36,63 +34,62 @@ pub(crate) fn applied_from(migration: &Migration) -> AppliedMigration {
 
 #[derive(Clone, Default)]
 pub(crate) struct FakeBackend {
-    pub(crate) calls: Rc<RefCell<Vec<String>>>,
-    pub(crate) applied: Rc<RefCell<Vec<AppliedMigration>>>,
-    pub(crate) fail_ensure_metadata_table: Rc<Cell<bool>>,
-    pub(crate) fail_load_applied: Rc<Cell<bool>>,
-    pub(crate) fail_apply_versions: Rc<RefCell<Vec<u64>>>,
+    pub(crate) calls: Arc<RwLock<Vec<String>>>,
+    pub(crate) applied: Arc<RwLock<Vec<AppliedMigration>>>,
+    pub(crate) fail_ensure_metadata_table: Arc<AtomicBool>,
+    pub(crate) fail_load_applied: Arc<AtomicBool>,
+    pub(crate) fail_apply_versions: Arc<RwLock<Vec<u64>>>,
 }
 
 impl FakeBackend {
     pub(crate) fn push(&self, call: &str) {
-        self.calls.borrow_mut().push(call.to_owned());
+        self.calls.write().unwrap().push(call.to_owned());
     }
 
     pub(crate) fn calls(&self) -> Vec<String> {
-        self.calls.borrow().to_owned()
+        self.calls.read().unwrap().to_owned()
     }
 }
 
 impl SyncMigrationBackend for FakeBackend {
-    fn ensure_metadata_table(&mut self) -> Result<(), MigrationError> {
+    type Error = FakeBackendError;
+
+    fn ensure_metadata_table(&mut self) -> Result<(), Self::Error> {
         self.push("ensure_metadata_table");
 
-        if self.fail_ensure_metadata_table.get() {
-            Err(MigrationError::Backend(anyhow::anyhow!(
-                "ensure_metadata_table failed"
-            )))
+        if self.fail_ensure_metadata_table.load(Ordering::Relaxed) {
+            Err(FakeBackendError::EnsureMetadataTable)
         } else {
             Ok(())
         }
     }
 
-    fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, MigrationError> {
+    fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, Self::Error> {
         self.push("load_applied");
 
-        if self.fail_load_applied.get() {
-            Err(MigrationError::Backend(anyhow::anyhow!(
-                "load_applied failed"
-            )))
+        if self.fail_load_applied.load(Ordering::Relaxed) {
+            Err(FakeBackendError::LoadApplied)
         } else {
-            Ok(self.applied.borrow().clone())
+            Ok(self.applied.read().unwrap().to_owned())
         }
     }
 
-    fn apply(&mut self, migration: &Migration) -> Result<(), MigrationError> {
+    fn apply(&mut self, migration: &Migration) -> Result<(), Self::Error> {
         self.push(&format!("apply:{}", migration.version()));
 
         if self
             .fail_apply_versions
-            .borrow()
+            .read()
+            .unwrap()
             .contains(&migration.version())
         {
-            Err(MigrationError::Backend(anyhow::anyhow!("apply failed")))
+            Err(FakeBackendError::Apply)
         } else {
             Ok(())
         }
     }
 
-    fn record(&mut self, migration: &Migration) -> Result<(), MigrationError> {
+    fn record(&mut self, migration: &Migration) -> Result<(), Self::Error> {
         self.push(&format!("record:{}", migration.version()));
 
         Ok(())
@@ -100,13 +97,13 @@ impl SyncMigrationBackend for FakeBackend {
 }
 
 impl AsyncMigrationBackend for FakeBackend {
-    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), MigrationError>> {
+    type Error = FakeBackendError;
+
+    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), Self::Error>> {
         self.push("ensure_metadata_table");
 
-        let result = if self.fail_ensure_metadata_table.get() {
-            Err(MigrationError::Backend(anyhow::anyhow!(
-                "ensure_metadata_table failed"
-            )))
+        let result = if self.fail_ensure_metadata_table.load(Ordering::Relaxed) {
+            Err(FakeBackendError::EnsureMetadataTable)
         } else {
             Ok(())
         };
@@ -114,31 +111,28 @@ impl AsyncMigrationBackend for FakeBackend {
         std::future::ready(result)
     }
 
-    fn load_applied(
-        &mut self,
-    ) -> impl Future<Output = Result<Vec<AppliedMigration>, MigrationError>> {
+    fn load_applied(&mut self) -> impl Future<Output = Result<Vec<AppliedMigration>, Self::Error>> {
         self.push("load_applied");
 
-        let result = if self.fail_load_applied.get() {
-            Err(MigrationError::Backend(anyhow::anyhow!(
-                "load_applied failed"
-            )))
+        let result = if self.fail_load_applied.load(Ordering::Relaxed) {
+            Err(FakeBackendError::LoadApplied)
         } else {
-            Ok(self.applied.borrow().clone())
+            Ok(self.applied.read().unwrap().to_owned())
         };
 
         std::future::ready(result)
     }
 
-    fn apply(&mut self, migration: &Migration) -> impl Future<Output = Result<(), MigrationError>> {
+    fn apply(&mut self, migration: &Migration) -> impl Future<Output = Result<(), Self::Error>> {
         self.push(&format!("apply:{}", migration.version()));
 
         let result = if self
             .fail_apply_versions
-            .borrow()
+            .read()
+            .unwrap()
             .contains(&migration.version())
         {
-            Err(MigrationError::Backend(anyhow::anyhow!("apply failed")))
+            Err(FakeBackendError::Apply)
         } else {
             Ok(())
         };
@@ -146,12 +140,21 @@ impl AsyncMigrationBackend for FakeBackend {
         std::future::ready(result)
     }
 
-    fn record(
-        &mut self,
-        migration: &Migration,
-    ) -> impl Future<Output = Result<(), MigrationError>> {
+    fn record(&mut self, migration: &Migration) -> impl Future<Output = Result<(), Self::Error>> {
         self.push(&format!("record:{}", migration.version()));
 
         std::future::ready(Ok(()))
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum FakeBackendError {
+    #[error("ensure_metadata_table failed")]
+    EnsureMetadataTable,
+
+    #[error("load_applied failed")]
+    LoadApplied,
+
+    #[error("apply failed")]
+    Apply,
 }
