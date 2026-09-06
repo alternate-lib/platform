@@ -4,6 +4,8 @@ use jiff::Timestamp;
 
 #[cfg(test)]
 mod fake;
+#[cfg(feature = "postgres")]
+pub mod postgres;
 
 pub trait QueueProducer: Send + Sync {
     type MessageId: Send + 'static;
