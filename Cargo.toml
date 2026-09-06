@@ -6,8 +6,6 @@ members = ["crates/email", "crates/http", "crates/kv", "crates/migration", "crat
 alternate-kv.path = "crates/kv"
 alternate-migration.path = "crates/migration"
 
-alternate-codec = { version = "0.1.0", registry = "self-hosted", git = "https://git.thealternate.dev/alternate/foundation", rev = "6ab3c110e76aac63cc775a6240603c533065671a" }
-
 jiff = "0.2.35"
 serde = "1.0.229"
 thiserror = "2.0.20"

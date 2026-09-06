@@ -1,16 +1,11 @@
 use std::time::Duration;
 
-#[cfg(feature = "typed")]
-pub use typed::{KvExpiryTyped, KvTyped, KvTypedError};
-
 #[cfg(feature = "postgres")]
 pub mod postgres;
 #[cfg(feature = "redis")]
 pub mod redis;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
-#[cfg(feature = "typed")]
-mod typed;
 
 pub trait KvClient {
     type Error: std::error::Error;

@@ -12,16 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alternate-codec"
-version = "0.1.0"
-source = "git+https://git.thealternate.dev/alternate/foundation?rev=6ab3c110e76aac63cc775a6240603c533065671a#6ab3c110e76aac63cc775a6240603c533065671a"
-dependencies = [
- "serde",
- "thiserror",
- "tracing",
-]
-
-[[package]]
 name = "alternate-email"
 version = "0.1.0"
 dependencies = [
@@ -37,7 +27,6 @@ dependencies = [
 name = "alternate-http"
 version = "0.1.0"
 dependencies = [
- "alternate-codec",
  "alternate-kv",
  "bytes",
  "http",
@@ -45,7 +34,6 @@ dependencies = [
  "hyper",
  "hyper-util",
  "reqwest 0.13.4",
- "serde",
  "thiserror",
  "tokio",
  "tower",
@@ -56,7 +44,6 @@ dependencies = [
 name = "alternate-kv"
 version = "0.1.0"
 dependencies = [
- "alternate-codec",
  "alternate-migration",
  "deadpool-postgres",
  "deadpool-redis",
@@ -64,7 +51,6 @@ dependencies = [
  "redis",
  "rusqlite",
  "rust-embed",
- "serde",
  "testcontainers",
  "thiserror",
  "tokio",
