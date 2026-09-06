@@ -44,6 +44,9 @@ pub enum PostgresQueueError {
 
     #[error("attempt limit must not overflow")]
     InvalidAttemptLimit,
+
+    #[error("duration must not overflow")]
+    InvalidDuration,
 }
 
 #[cfg(test)]

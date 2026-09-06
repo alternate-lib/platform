@@ -6,7 +6,10 @@ use tokio_postgres::{AsyncMessage, NoTls};
 use uuid::Uuid;
 
 use super::PostgresQueueError;
-use crate::{QueueConsumer, QueueDelivery, QueueError};
+use crate::{
+    QueueConsumer, QueueDelivery, QueueError, QueueLeaseReclaim, QueueLeaseRenewal, QueueRejection,
+    QueueScheduledPromotion, RejectAction, RejectOutcome,
+};
 
 #[derive(Debug)]
 pub struct PostgresConsumer {
@@ -120,8 +123,7 @@ impl PostgresConsumer {
                 Ok(QueueDelivery {
                     id: id.clone(),
                     payload: row.get(1),
-                    attempts: usize::try_from(row.get::<_, i32>(2))
-                        .map_err(|_| PostgresQueueError::InvalidAttemptLimit)?,
+                    attempts: attempts(row.get(2))?,
                     attributes,
                     receipt: PostgresReceipt {
                         message_id: id,
@@ -170,6 +172,123 @@ impl QueueConsumer for PostgresConsumer {
         }
 
         Ok(())
+    }
+}
+
+impl QueueLeaseReclaim for PostgresConsumer {
+    async fn reclaim(&self) -> Result<usize, Self::Error> {
+        let client = self.pool.get().await?;
+
+        let stmt = client.prepare_cached(self.scripts.reclaim).await?;
+        let rows = client
+            .query(&stmt, &[&self.config.queue_key, &self.config.reclaim_batch])
+            .await?;
+
+        Ok(rows.len())
+    }
+}
+
+impl QueueLeaseRenewal for PostgresConsumer {
+    async fn renew(
+        &self,
+        receipt: &Self::Receipt,
+        visibility: Duration,
+    ) -> Result<(), Self::Error> {
+        let client = self.pool.get().await?;
+
+        let stmt = client.prepare_cached(self.scripts.renew).await?;
+        let updated = client
+            .execute(
+                &stmt,
+                &[
+                    &self.config.queue_key,
+                    &receipt.message_id,
+                    &receipt.lease_token,
+                    &duration_micros(visibility)?,
+                ],
+            )
+            .await?;
+
+        if updated == 0 {
+            return Err(QueueError::StaleReceipt.into());
+        }
+
+        Ok(())
+    }
+}
+
+impl QueueRejection for PostgresConsumer {
+    async fn reject(
+        &self,
+        receipt: Self::Receipt,
+        action: RejectAction,
+    ) -> Result<RejectOutcome, Self::Error> {
+        let client = self.pool.get().await?;
+
+        match action {
+            RejectAction::Retry {
+                after,
+                max_attempts,
+            } => {
+                let after_micros = after.map(duration_micros).transpose()?;
+                let max_attempts = max_attempts
+                    .map(i64::try_from)
+                    .transpose()
+                    .map_err(|_| PostgresQueueError::InvalidAttemptLimit)?;
+
+                let stmt = client.prepare_cached(self.scripts.reject).await?;
+                let row = client
+                    .query_opt(
+                        &stmt,
+                        &[
+                            &self.config.queue_key,
+                            &receipt.message_id,
+                            &max_attempts,
+                            &after_micros,
+                            &receipt.lease_token,
+                        ],
+                    )
+                    .await?
+                    .ok_or(QueueError::StaleReceipt)?;
+
+                Ok(RejectOutcome {
+                    attempts: attempts(row.get(0))?,
+                    exhausted: row.get(1),
+                })
+            }
+            RejectAction::DeadLetter => {
+                let stmt = client.prepare_cached(self.scripts.dead_letter).await?;
+                let row = client
+                    .query_opt(
+                        &stmt,
+                        &[
+                            &self.config.queue_key,
+                            &receipt.message_id,
+                            &receipt.lease_token,
+                        ],
+                    )
+                    .await?
+                    .ok_or(QueueError::StaleReceipt)?;
+
+                Ok(RejectOutcome {
+                    attempts: attempts(row.get(0))?,
+                    exhausted: false,
+                })
+            }
+        }
+    }
+}
+
+impl QueueScheduledPromotion for PostgresConsumer {
+    async fn promote(&self) -> Result<usize, Self::Error> {
+        let client = self.pool.get().await?;
+
+        let stmt = client.prepare_cached(self.scripts.promote).await?;
+        let rows = client
+            .query(&stmt, &[&self.config.queue_key, &self.config.promote_batch])
+            .await?;
+
+        Ok(rows.len())
     }
 }
 
@@ -319,6 +438,11 @@ pub enum PostgresConsumerConfigError {
 struct PostgresScripts {
     ack: &'static str,
     claim: &'static str,
+    dead_letter: &'static str,
+    promote: &'static str,
+    reclaim: &'static str,
+    reject: &'static str,
+    renew: &'static str,
 }
 
 impl PostgresScripts {
@@ -326,8 +450,21 @@ impl PostgresScripts {
         Self {
             ack: include_str!("../../sql/postgres/ack.sql"),
             claim: include_str!("../../sql/postgres/claim.sql"),
+            dead_letter: include_str!("../../sql/postgres/dead_letter.sql"),
+            promote: include_str!("../../sql/postgres/promote.sql"),
+            reclaim: include_str!("../../sql/postgres/reclaim.sql"),
+            reject: include_str!("../../sql/postgres/reject.sql"),
+            renew: include_str!("../../sql/postgres/renew.sql"),
         }
     }
+}
+
+fn attempts(value: i32) -> Result<usize, PostgresQueueError> {
+    usize::try_from(value).map_err(|_| PostgresQueueError::InvalidAttemptLimit)
+}
+
+fn duration_micros(value: Duration) -> Result<i64, PostgresQueueError> {
+    i64::try_from(value.as_micros()).map_err(|_| PostgresQueueError::InvalidDuration)
 }
 
 #[cfg(test)]
