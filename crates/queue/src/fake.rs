@@ -7,7 +7,10 @@ use std::{
     time::Duration,
 };
 
-use crate::{QueueConsumer, QueueDelivery, QueueError, QueueMessage, QueueProducer};
+use crate::{
+    QueueConsumer, QueueDelivery, QueueError, QueueLeaseReclaim, QueueLeaseRenewal, QueueMessage,
+    QueueProducer,
+};
 
 #[derive(Debug, Clone)]
 pub struct FakeQueue {
@@ -140,6 +143,49 @@ impl QueueConsumer for FakeQueue {
     }
 }
 
+impl QueueLeaseReclaim for FakeQueue {
+    async fn reclaim(&self) -> Result<usize, Self::Error> {
+        let now = self.clock.now_micros();
+        let mut state = self.state.lock().expect("queue state lock");
+
+        let expired: Vec<u64> = state
+            .inflight
+            .iter()
+            .filter(|(_, lease)| lease.expires_at_micros <= now)
+            .map(|(token, _)| *token)
+            .collect();
+
+        let mut moved = 0;
+        for token in expired {
+            if let Some(lease) = state.inflight.remove(&token) {
+                state.ready.push_back(lease.enqueued);
+                moved += 1;
+            }
+        }
+
+        Ok(moved)
+    }
+}
+
+impl QueueLeaseRenewal for FakeQueue {
+    async fn renew(
+        &self,
+        receipt: &Self::Receipt,
+        visibility: Duration,
+    ) -> Result<(), Self::Error> {
+        let mut state = self.state.lock().expect("queue state lock");
+
+        let lease = state
+            .inflight
+            .get_mut(&receipt.token)
+            .ok_or(QueueError::StaleReceipt)?;
+
+        lease.expires_at_micros = self.clock.now_micros() + duration_micros(visibility);
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FakeReceipt {
     token: u64,
@@ -258,5 +304,87 @@ mod tests {
         clock.advance(Duration::from_secs(2));
         clock.advance(Duration::from_millis(500));
         assert_eq!(clock.now_micros(), 2_500_000);
+    }
+
+    #[tokio::test]
+    async fn stale_ack_returns_error_and_leaves_newer_lease_intact() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+        let first = queue.receive().await.unwrap().unwrap();
+        queue.clock().advance(Duration::from_secs(31));
+
+        let reclaimed = queue.reclaim().await.unwrap();
+        assert_eq!(reclaimed, 1);
+
+        let second = queue.receive().await.unwrap().unwrap();
+        assert_eq!(second.id, first.id);
+
+        assert!(queue.ack(first.receipt).await.is_err());
+
+        queue.ack(second.receipt).await.unwrap();
+
+        assert!(queue.receive().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn lease_renewal_extends_visibility() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        let delivery = queue.receive().await.unwrap().unwrap();
+        queue.clock().advance(Duration::from_secs(20));
+
+        queue
+            .renew(&delivery.receipt, Duration::from_secs(60))
+            .await
+            .unwrap();
+        queue.clock().advance(Duration::from_secs(20));
+
+        let reclaimed = queue.reclaim().await.unwrap();
+        assert_eq!(reclaimed, 0, "renewed lease must not be reclaimed early");
+
+        queue.ack(delivery.receipt).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reclaim_does_not_increment_attempts() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        let first = queue.receive().await.unwrap().unwrap();
+        assert_eq!(first.attempts, 0);
+
+        queue.clock().advance(Duration::from_secs(31));
+        queue.reclaim().await.unwrap();
+
+        let second = queue.receive().await.unwrap().unwrap();
+        assert_eq!(second.id, first.id);
+        assert_eq!(second.attempts, 0, "reclamation is not a failed execution");
+    }
+
+    #[tokio::test]
+    async fn reclaim_of_empty_queue_returns_zero() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        let reclaimed = queue.reclaim().await.unwrap();
+        assert_eq!(reclaimed, 0);
+    }
+
+    #[tokio::test]
+    async fn ack_after_reclaim_is_stale() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        let delivery = queue.receive().await.unwrap().unwrap();
+        queue.clock().advance(Duration::from_secs(31));
+
+        queue.reclaim().await.unwrap();
+
+        let result = queue.ack(delivery.receipt).await;
+        assert!(matches!(result, Err(QueueError::StaleReceipt)));
     }
 }

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, error::Error, future::Future};
+use std::{collections::BTreeMap, error::Error, future::Future, time::Duration};
 
 #[cfg(test)]
 mod fake;
@@ -48,6 +48,18 @@ pub struct QueueDelivery<R> {
     pub attempts: usize,
     pub attributes: BTreeMap<String, String>,
     pub receipt: R,
+}
+
+pub trait QueueLeaseReclaim: QueueConsumer {
+    fn reclaim(&self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
+}
+
+pub trait QueueLeaseRenewal: QueueConsumer {
+    fn renew(
+        &self,
+        receipt: &Self::Receipt,
+        visibility: Duration,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]
