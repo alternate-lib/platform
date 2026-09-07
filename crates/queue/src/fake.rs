@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     QueueConsumer, QueueDelivery, QueueError, QueueLeaseReclaim, QueueLeaseRenewal, QueueMessage,
-    QueueProducer,
+    QueueProducer, QueueRejection, RejectAction, RejectOutcome,
 };
 
 #[derive(Debug, Clone)]
@@ -183,6 +183,60 @@ impl QueueLeaseRenewal for FakeQueue {
         lease.expires_at_micros = self.clock.now_micros() + duration_micros(visibility);
 
         Ok(())
+    }
+}
+
+impl QueueRejection for FakeQueue {
+    async fn reject(
+        &self,
+        receipt: Self::Receipt,
+        action: RejectAction,
+    ) -> Result<RejectOutcome, Self::Error> {
+        let mut state = self.state.lock().expect("queue state lock");
+
+        let lease = state
+            .inflight
+            .remove(&receipt.token)
+            .ok_or(QueueError::StaleReceipt)?;
+
+        match action {
+            RejectAction::Retry {
+                after,
+                max_attempts,
+            } => {
+                let attempts = state.attempts.entry(lease.enqueued.id.clone()).or_insert(0);
+                *attempts += 1;
+                let attempts = *attempts;
+
+                let exhausted = max_attempts.is_some_and(|max| attempts > max);
+
+                if exhausted {
+                    state.dead.insert(lease.enqueued.id.clone(), lease.enqueued);
+                } else if let Some(after) = after {
+                    let run_at = self.clock.now_micros() + duration_micros(after);
+
+                    state
+                        .scheduled
+                        .insert((run_at, lease.enqueued.id.clone()), lease.enqueued);
+                } else {
+                    state.ready.push_back(lease.enqueued);
+                }
+
+                Ok(RejectOutcome {
+                    attempts,
+                    exhausted,
+                })
+            }
+            RejectAction::DeadLetter => {
+                let attempts = state.attempts.get(&lease.enqueued.id).copied().unwrap_or(0);
+                state.dead.insert(lease.enqueued.id.clone(), lease.enqueued);
+
+                Ok(RejectOutcome {
+                    attempts,
+                    exhausted: false,
+                })
+            }
+        }
     }
 }
 
@@ -386,5 +440,153 @@ mod tests {
 
         let result = queue.ack(delivery.receipt).await;
         assert!(matches!(result, Err(QueueError::StaleReceipt)));
+    }
+
+    #[tokio::test]
+    async fn stale_reject_does_not_increment_attempts() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        let first = queue.receive().await.unwrap().unwrap();
+        queue.clock().advance(Duration::from_secs(31));
+
+        queue.reclaim().await.unwrap();
+
+        let second = queue.receive().await.unwrap().unwrap();
+
+        let outcome = queue
+            .reject(
+                first.receipt,
+                RejectAction::Retry {
+                    after: None,
+                    max_attempts: Some(3),
+                },
+            )
+            .await;
+        assert!(outcome.is_err());
+
+        assert_eq!(second.attempts, 0);
+
+        let outcome = queue
+            .reject(
+                second.receipt,
+                RejectAction::Retry {
+                    after: None,
+                    max_attempts: Some(3),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.attempts, 1);
+        assert!(!outcome.exhausted);
+    }
+
+    #[tokio::test]
+    async fn retry_returns_message_to_ready() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+        let delivery = queue.receive().await.unwrap().unwrap();
+
+        let outcome = queue
+            .reject(
+                delivery.receipt,
+                RejectAction::Retry {
+                    after: None,
+                    max_attempts: Some(3),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.attempts, 1);
+        assert!(!outcome.exhausted);
+
+        let redelivered = queue.receive().await.unwrap().unwrap();
+        assert_eq!(redelivered.id, delivery.id);
+        assert_eq!(redelivered.attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn retry_exhaustion_is_atomic_and_dead_letters() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        for expected in [1, 2] {
+            let delivery = queue.receive().await.unwrap().unwrap();
+
+            let outcome = queue
+                .reject(
+                    delivery.receipt,
+                    RejectAction::Retry {
+                        after: None,
+                        max_attempts: Some(2),
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome.attempts, expected);
+            assert!(!outcome.exhausted);
+        }
+
+        let delivery = queue.receive().await.unwrap().unwrap();
+
+        let outcome = queue
+            .reject(
+                delivery.receipt,
+                RejectAction::Retry {
+                    after: None,
+                    max_attempts: Some(2),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.attempts, 3);
+        assert!(outcome.exhausted);
+
+        assert!(queue.receive().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn without_retry_limit_never_exhausts() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        for expected in 1..=5 {
+            let delivery = queue.receive().await.unwrap().unwrap();
+
+            let outcome = queue
+                .reject(
+                    delivery.receipt,
+                    RejectAction::Retry {
+                        after: None,
+                        max_attempts: None,
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome.attempts, expected);
+            assert!(!outcome.exhausted);
+        }
+    }
+
+    #[tokio::test]
+    async fn dead_letter_terminates_without_extra_attempt() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        let delivery = queue.receive().await.unwrap().unwrap();
+
+        let outcome = queue
+            .reject(delivery.receipt, RejectAction::DeadLetter)
+            .await
+            .unwrap();
+        assert_eq!(outcome.attempts, 0);
+        assert!(!outcome.exhausted);
+
+        assert!(queue.receive().await.unwrap().is_none());
     }
 }

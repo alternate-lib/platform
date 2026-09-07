@@ -62,6 +62,29 @@ pub trait QueueLeaseRenewal: QueueConsumer {
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
+pub trait QueueRejection: QueueConsumer {
+    fn reject(
+        &self,
+        receipt: Self::Receipt,
+        action: RejectAction,
+    ) -> impl Future<Output = Result<RejectOutcome, Self::Error>> + Send;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RejectAction {
+    Retry {
+        after: Option<Duration>,
+        max_attempts: Option<usize>,
+    },
+    DeadLetter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RejectOutcome {
+    pub attempts: usize,
+    pub exhausted: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
     #[error("message ID is already in use")]
