@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, error::Error, future::Future, time::Duration};
 
+use jiff::Timestamp;
+
 #[cfg(test)]
 mod fake;
 
@@ -83,6 +85,18 @@ pub enum RejectAction {
 pub struct RejectOutcome {
     pub attempts: usize,
     pub exhausted: bool,
+}
+
+pub trait QueueScheduled: QueueProducer {
+    fn schedule(
+        &self,
+        message: QueueMessage,
+        run_at: Timestamp,
+    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>> + Send;
+}
+
+pub trait QueueScheduledPromotion: QueueConsumer {
+    fn promote(&self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

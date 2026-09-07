@@ -7,9 +7,12 @@ use std::{
     time::Duration,
 };
 
+use jiff::Timestamp;
+
 use crate::{
     QueueConsumer, QueueDelivery, QueueError, QueueLeaseReclaim, QueueLeaseRenewal, QueueMessage,
-    QueueProducer, QueueRejection, RejectAction, RejectOutcome,
+    QueueProducer, QueueRejection, QueueScheduled, QueueScheduledPromotion, RejectAction,
+    RejectOutcome,
 };
 
 #[derive(Debug, Clone)]
@@ -240,6 +243,57 @@ impl QueueRejection for FakeQueue {
     }
 }
 
+impl QueueScheduled for FakeQueue {
+    async fn schedule(
+        &self,
+        message: QueueMessage,
+        run_at: Timestamp,
+    ) -> Result<Self::MessageId, Self::Error> {
+        let mut state = self.state.lock().expect("queue state lock");
+
+        let id = match message.id.clone() {
+            Some(id) if Self::id_in_use(&state, &id) => return Err(QueueError::DuplicateMessageId),
+            Some(id) => id,
+            None => Self::generated_id(&mut state),
+        };
+
+        state.scheduled.insert(
+            (run_at.as_microsecond(), id.clone()),
+            Enqueued {
+                id: id.clone(),
+                payload: message.payload,
+                attributes: message.attributes,
+            },
+        );
+
+        Ok(id)
+    }
+}
+
+impl QueueScheduledPromotion for FakeQueue {
+    async fn promote(&self) -> Result<usize, Self::Error> {
+        let mut state = self.state.lock().expect("queue state lock");
+
+        let now = self.clock.now_micros();
+        let due = state
+            .scheduled
+            .keys()
+            .filter(|(run_at, _)| *run_at <= now)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let mut promoted = 0;
+        for key in due {
+            if let Some(enqueued) = state.scheduled.remove(&key) {
+                state.ready.push_back(enqueued);
+                promoted += 1;
+            }
+        }
+
+        Ok(promoted)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FakeReceipt {
     token: u64,
@@ -268,6 +322,11 @@ impl FakeClock {
 
     pub fn advance(&self, by: Duration) {
         self.0.fetch_add(duration_micros(by), Ordering::SeqCst);
+    }
+
+    pub fn now(&self) -> Timestamp {
+        Timestamp::from_microsecond(self.now_micros())
+            .expect("fake clock stays within Timestamp range")
     }
 }
 
@@ -588,5 +647,52 @@ mod tests {
         assert!(!outcome.exhausted);
 
         assert!(queue.receive().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delayed_retry_is_invisible_until_due() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+
+        queue.send(message("payload")).await.unwrap();
+
+        let delivery = queue.receive().await.unwrap().unwrap();
+
+        queue
+            .reject(
+                delivery.receipt,
+                RejectAction::Retry {
+                    after: Some(Duration::from_secs(60)),
+                    max_attempts: Some(3),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(queue.receive().await.unwrap().is_none());
+
+        queue.clock().advance(Duration::from_secs(61));
+
+        assert_eq!(queue.promote().await.unwrap(), 1);
+
+        let redelivered = queue.receive().await.unwrap().unwrap();
+        assert_eq!(redelivered.attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn delayed_queue_schedule_is_microsecond_precise() {
+        let queue = FakeQueue::new(FakeQueueConfig::default());
+        let base = queue.clock().now();
+
+        queue
+            .schedule(message("payload"), base + Duration::from_micros(1_500_750))
+            .await
+            .unwrap();
+        assert!(queue.receive().await.unwrap().is_none());
+
+        queue.clock().advance(Duration::from_micros(1_500_750));
+
+        assert_eq!(queue.promote().await.unwrap(), 1);
+
+        let delivery = queue.receive().await.unwrap().unwrap();
+        assert_eq!(delivery.id, "msg-000000000000");
     }
 }
