@@ -1,16 +1,16 @@
 use std::marker::PhantomData;
 
 use alternate_codec::Codec;
-use alternate_kv::KvClientTyped;
+use alternate_kv::KvTyped;
 use http_cache::{CacheManager, HttpResponse};
 use http_cache_semantics::CachePolicy;
 
-pub struct KvCacheManager<C: Codec, KC: KvClientTyped<C>> {
+pub struct KvCacheManager<C: Codec, KC: KvTyped<C>> {
     kv_client: KC,
     _codec: PhantomData<C>,
 }
 
-impl<C: Codec, KC: KvClientTyped<C>> KvCacheManager<C, KC> {
+impl<C: Codec, KC: KvTyped<C>> KvCacheManager<C, KC> {
     pub fn new(kv_client: KC) -> Self {
         Self {
             kv_client,
@@ -19,7 +19,7 @@ impl<C: Codec, KC: KvClientTyped<C>> KvCacheManager<C, KC> {
     }
 }
 
-impl<C: Codec + Send + Sync + 'static, KC: KvClientTyped<C> + 'static> CacheManager
+impl<C: Codec + Send + Sync + 'static, KC: KvTyped<C> + 'static> CacheManager
     for KvCacheManager<C, KC>
 where
     C::Error: Send + Sync + 'static,

@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use alternate_kv::{
-    KvClient, KvClientExpiry,
+    KvClient, KvExpiry,
     sqlite::{SqliteClient, SqliteClientError},
 };
 use alternate_migration::{SyncMigrationRunner, sqlite::SqliteMigrationBackend};

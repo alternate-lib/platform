@@ -4,7 +4,7 @@ use alternate_migration::Migration;
 use deadpool_sqlite::{InteractError, Pool, PoolError, rusqlite};
 use tokio::{task::JoinHandle, time};
 
-use crate::{KvClient, KvClientExpiry};
+use crate::{KvClient, KvExpiry};
 
 #[derive(Debug, Clone)]
 pub struct SqliteClient {
@@ -175,7 +175,7 @@ impl KvClient for SqliteClient {
     }
 }
 
-impl KvClientExpiry for SqliteClient {
+impl KvExpiry for SqliteClient {
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "debug", skip(self, value), err(Debug))

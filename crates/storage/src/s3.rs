@@ -6,7 +6,7 @@ use s3::{
     error::S3Error,
 };
 
-use crate::{StorageClient, StorageClientPresign};
+use crate::{StorageClient, StoragePresign};
 
 #[derive(Clone)]
 pub struct S3Client {
@@ -105,9 +105,7 @@ impl StorageClient for S3Client {
     }
 }
 
-impl StorageClientPresign for S3Client {
-    type Error = S3ClientError;
-
+impl StoragePresign for S3Client {
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "debug", skip(self), err(Debug))

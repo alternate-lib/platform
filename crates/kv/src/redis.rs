@@ -3,7 +3,7 @@ use std::{fmt::Debug, time::Duration};
 use deadpool_redis::{Pool, PoolError};
 use redis::{AsyncCommands, RedisError};
 
-use crate::{KvClient, KvClientExpiry};
+use crate::{KvClient, KvExpiry};
 
 #[derive(Debug, Clone)]
 pub struct RedisClient {
@@ -68,7 +68,7 @@ impl KvClient for RedisClient {
     }
 }
 
-impl KvClientExpiry for RedisClient {
+impl KvExpiry for RedisClient {
     async fn set_with_ttl(
         &self,
         key: &str,

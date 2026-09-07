@@ -3,28 +3,28 @@ use std::time::Duration;
 use alternate_codec::Codec;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::{KvClient, KvClientExpiry};
+use crate::{KvClient, KvExpiry};
 
-pub trait KvClientTyped<C: Codec>: KvClient {
+pub trait KvTyped<C: Codec>: KvClient {
     fn get_typed<V: DeserializeOwned>(
         &self,
         key: &str,
-    ) -> impl Future<Output = Result<Option<V>, KvClientTypedError<C::Error, Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<Option<V>, KvTypedError<C::Error, Self::Error>>> + Send;
 
     fn set_typed<V: Serialize + Sync>(
         &self,
         key: &str,
         value: &V,
-    ) -> impl Future<Output = Result<(), KvClientTypedError<C::Error, Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<(), KvTypedError<C::Error, Self::Error>>> + Send;
 }
 
-impl<KC: KvClient, C: Codec> KvClientTyped<C> for KC {
+impl<KC: KvClient, C: Codec> KvTyped<C> for KC {
     async fn get_typed<V: DeserializeOwned>(
         &self,
         key: &str,
-    ) -> Result<Option<V>, KvClientTypedError<C::Error, Self::Error>> {
+    ) -> Result<Option<V>, KvTypedError<C::Error, Self::Error>> {
         match self.get(key).await? {
-            Some(raw) => Ok(Some(C::decode(&raw).map_err(KvClientTypedError::Codec)?)),
+            Some(raw) => Ok(Some(C::decode(&raw).map_err(KvTypedError::Codec)?)),
             None => Ok(None),
         }
     }
@@ -33,8 +33,8 @@ impl<KC: KvClient, C: Codec> KvClientTyped<C> for KC {
         &self,
         key: &str,
         value: &V,
-    ) -> Result<(), KvClientTypedError<C::Error, Self::Error>> {
-        let raw = C::encode(&value).map_err(KvClientTypedError::Codec)?;
+    ) -> Result<(), KvTypedError<C::Error, Self::Error>> {
+        let raw = C::encode(&value).map_err(KvTypedError::Codec)?;
 
         self.set(key, &raw).await?;
 
@@ -42,23 +42,23 @@ impl<KC: KvClient, C: Codec> KvClientTyped<C> for KC {
     }
 }
 
-pub trait KvClientExpiryTyped<C: Codec>: KvClientExpiry {
+pub trait KvExpiryTyped<C: Codec>: KvExpiry {
     fn set_with_ttl_typed<V: Serialize + Send>(
         &self,
         key: &str,
         value: V,
         ttl: Duration,
-    ) -> impl Future<Output = Result<(), KvClientTypedError<C::Error, Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<(), KvTypedError<C::Error, Self::Error>>> + Send;
 }
 
-impl<KC: KvClientExpiry, C: Codec> KvClientExpiryTyped<C> for KC {
+impl<KC: KvExpiry, C: Codec> KvExpiryTyped<C> for KC {
     async fn set_with_ttl_typed<V: Serialize>(
         &self,
         key: &str,
         value: V,
         ttl: Duration,
-    ) -> Result<(), KvClientTypedError<C::Error, Self::Error>> {
-        let raw = C::encode(&value).map_err(KvClientTypedError::Codec)?;
+    ) -> Result<(), KvTypedError<C::Error, Self::Error>> {
+        let raw = C::encode(&value).map_err(KvTypedError::Codec)?;
 
         self.set_with_ttl(key, &raw, ttl).await?;
 
@@ -67,7 +67,7 @@ impl<KC: KvClientExpiry, C: Codec> KvClientExpiryTyped<C> for KC {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum KvClientTypedError<CodecErr: std::error::Error, ClientErr: std::error::Error> {
+pub enum KvTypedError<CodecErr: std::error::Error, ClientErr: std::error::Error> {
     #[error("codec: {0}")]
     Codec(CodecErr),
 

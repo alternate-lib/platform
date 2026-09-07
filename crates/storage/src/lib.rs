@@ -17,9 +17,7 @@ pub trait StorageClient: Send + Sync {
     fn delete(&self, path: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
-pub trait StorageClientPresign: Send + Sync {
-    type Error: std::error::Error + Send + Sync + 'static;
-
+pub trait StoragePresign: StorageClient {
     fn get_presigned(
         &self,
         key: &str,
@@ -73,7 +71,7 @@ pub trait DynStorageClientPresign: Send + Sync {
 }
 
 #[async_trait::async_trait]
-impl<SC: StorageClientPresign> DynStorageClientPresign for SC {
+impl<SC: StoragePresign> DynStorageClientPresign for SC {
     async fn get_presigned(
         &self,
         key: &str,

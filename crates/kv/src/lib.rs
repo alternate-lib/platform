@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 #[cfg(feature = "typed")]
-pub use typed::{KvClientExpiryTyped, KvClientTyped, KvClientTypedError};
+pub use typed::{KvExpiryTyped, KvTyped, KvTypedError};
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -24,7 +24,7 @@ pub trait KvClient: Send + Sync {
     fn delete(&self, key: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
-pub trait KvClientExpiry: KvClient {
+pub trait KvExpiry: KvClient {
     fn set_with_ttl(
         &self,
         key: &str,
@@ -74,7 +74,7 @@ pub trait DynKvClientExpiry: DynKvClient {
 }
 
 #[async_trait::async_trait]
-impl<KC: KvClientExpiry> DynKvClientExpiry for KC {
+impl<KC: KvExpiry> DynKvClientExpiry for KC {
     async fn set_with_ttl(
         &self,
         key: &str,

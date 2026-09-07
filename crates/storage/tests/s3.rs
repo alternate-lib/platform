@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use alternate_storage::{
-    StorageClient, StorageClientPresign,
+    StorageClient, StoragePresign,
     s3::{S3Client, S3ClientConfig, S3ClientError},
 };
 use s3::{Bucket, BucketConfiguration, Region, creds::Credentials};

@@ -4,7 +4,7 @@ use alternate_migration::Migration;
 use deadpool_postgres::{Pool, PoolError};
 use tokio::{task::JoinHandle, time};
 
-use crate::{KvClient, KvClientExpiry};
+use crate::{KvClient, KvExpiry};
 
 #[derive(Debug, Clone)]
 pub struct PostgresClient {
@@ -124,7 +124,7 @@ impl KvClient for PostgresClient {
     }
 }
 
-impl KvClientExpiry for PostgresClient {
+impl KvExpiry for PostgresClient {
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "debug", skip(self, value), err(Debug))

@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use http::{Error as HttpError, Method, Request, Response};
 #[cfg(feature = "typed")]
-pub use typed::{HttpClientExtTyped, HttpClientTyped, HttpClientTypedError};
+pub use typed::{HttpExtTyped, HttpTyped, HttpTypedError};
 
 #[cfg(feature = "cache")]
 pub mod cache;
@@ -21,20 +21,20 @@ pub trait HttpClient: Send + Sync {
     ) -> impl Future<Output = Result<Response<Bytes>, Self::Error>> + Send;
 }
 
-pub trait HttpClientExt: HttpClient {
+pub trait HttpExt: HttpClient {
     fn get(
         &self,
         url: &str,
-    ) -> impl Future<Output = Result<Bytes, HttpClientExtError<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<Bytes, HttpExtError<Self::Error>>> + Send;
 }
 
-impl<HC: HttpClient> HttpClientExt for HC {
-    async fn get(&self, url: &str) -> Result<Bytes, HttpClientExtError<Self::Error>> {
+impl<HC: HttpClient> HttpExt for HC {
+    async fn get(&self, url: &str) -> Result<Bytes, HttpExtError<Self::Error>> {
         let request = Request::builder()
             .method(Method::GET)
             .uri(url)
             .body(Bytes::new())
-            .map_err(HttpClientExtError::Request)?;
+            .map_err(HttpExtError::Request)?;
 
         let resp = self.send(request).await?;
 
@@ -55,7 +55,7 @@ impl<HC: HttpClient> DynHttpClient for HC {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HttpClientExtError<ClientErr: std::error::Error> {
+pub enum HttpExtError<ClientErr: std::error::Error> {
     #[error("request: {0}")]
     Request(HttpError),
 

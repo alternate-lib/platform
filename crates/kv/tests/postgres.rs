@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use alternate_kv::{KvClient, KvClientExpiry, postgres::PostgresClient};
+use alternate_kv::{KvClient, KvExpiry, postgres::PostgresClient};
 use alternate_migration::{AsyncMigrationRunner, postgres::PostgresBackend};
 use deadpool_postgres::{Config as PostgresPoolConfig, Pool, Runtime};
 use testcontainers::{

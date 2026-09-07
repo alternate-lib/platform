@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use alternate_kv::{KvClient, KvClientExpiry, redis::RedisClient};
+use alternate_kv::{KvClient, KvExpiry, redis::RedisClient};
 use deadpool_redis::{Config as RedisPoolConfig, Pool, Runtime};
 use testcontainers::{ContainerAsync, GenericImage, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::time;
