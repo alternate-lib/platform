@@ -27,7 +27,6 @@ dependencies = [
 name = "alternate-http"
 version = "0.1.0"
 dependencies = [
- "alternate-kv",
  "bytes",
  "http",
  "http-body-util",
@@ -36,7 +35,6 @@ dependencies = [
  "reqwest 0.13.4",
  "thiserror",
  "tokio",
- "tower",
  "tracing",
 ]
 

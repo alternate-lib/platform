@@ -3,7 +3,6 @@ resolver = "3"
 members = ["crates/email", "crates/http", "crates/kv", "crates/migration", "crates/queue", "crates/storage"]
 
 [workspace.dependencies]
-alternate-kv.path = "crates/kv"
 alternate-migration.path = "crates/migration"
 
 jiff = "0.2.35"
