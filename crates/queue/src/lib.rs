@@ -14,7 +14,7 @@ pub trait QueueProducer {
     fn send(
         &self,
         message: QueueMessage,
-    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>>;
+    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>> + Send;
 }
 
 pub trait QueueConsumer {
@@ -23,9 +23,9 @@ pub trait QueueConsumer {
 
     fn receive(
         &self,
-    ) -> impl Future<Output = Result<Option<QueueDelivery<Self::Receipt>>, Self::Error>>;
+    ) -> impl Future<Output = Result<Option<QueueDelivery<Self::Receipt>>, Self::Error>> + Send;
 
-    fn ack(&self, receipt: Self::Receipt) -> impl Future<Output = Result<(), Self::Error>>;
+    fn ack(&self, receipt: Self::Receipt) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +55,7 @@ pub struct QueueDelivery<R> {
 }
 
 pub trait QueueLeaseReclaim: QueueConsumer {
-    fn reclaim(&self) -> impl Future<Output = Result<usize, Self::Error>>;
+    fn reclaim(&self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
 }
 
 pub trait QueueLeaseRenewal: QueueConsumer {
@@ -63,7 +63,7 @@ pub trait QueueLeaseRenewal: QueueConsumer {
         &self,
         receipt: &Self::Receipt,
         visibility: Duration,
-    ) -> impl Future<Output = Result<(), Self::Error>>;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 pub trait QueueRejection: QueueConsumer {
@@ -71,7 +71,7 @@ pub trait QueueRejection: QueueConsumer {
         &self,
         receipt: Self::Receipt,
         action: RejectAction,
-    ) -> impl Future<Output = Result<RejectOutcome, Self::Error>>;
+    ) -> impl Future<Output = Result<RejectOutcome, Self::Error>> + Send;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,11 +94,11 @@ pub trait QueueScheduled: QueueProducer {
         &self,
         message: QueueMessage,
         run_at: Timestamp,
-    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>>;
+    ) -> impl Future<Output = Result<Self::MessageId, Self::Error>> + Send;
 }
 
 pub trait QueueScheduledPromotion: QueueConsumer {
-    fn promote(&self) -> impl Future<Output = Result<usize, Self::Error>>;
+    fn promote(&self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

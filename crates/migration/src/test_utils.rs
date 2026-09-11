@@ -99,51 +99,45 @@ impl SyncMigrationBackend for FakeBackend {
 impl AsyncMigrationBackend for FakeBackend {
     type Error = FakeBackendError;
 
-    fn ensure_metadata_table(&self) -> impl Future<Output = Result<(), Self::Error>> {
+    async fn ensure_metadata_table(&self) -> Result<(), Self::Error> {
         self.push("ensure_metadata_table");
 
-        let result = if self.fail_ensure_metadata_table.load(Ordering::Relaxed) {
-            Err(FakeBackendError::EnsureMetadataTable)
-        } else {
-            Ok(())
-        };
+        if self.fail_ensure_metadata_table.load(Ordering::Relaxed) {
+            return Err(FakeBackendError::EnsureMetadataTable);
+        }
 
-        std::future::ready(result)
+        Ok(())
     }
 
-    fn load_applied(&mut self) -> impl Future<Output = Result<Vec<AppliedMigration>, Self::Error>> {
+    async fn load_applied(&mut self) -> Result<Vec<AppliedMigration>, Self::Error> {
         self.push("load_applied");
 
-        let result = if self.fail_load_applied.load(Ordering::Relaxed) {
-            Err(FakeBackendError::LoadApplied)
-        } else {
-            Ok(self.applied.read().unwrap().to_owned())
-        };
+        if self.fail_load_applied.load(Ordering::Relaxed) {
+            return Err(FakeBackendError::LoadApplied);
+        }
 
-        std::future::ready(result)
+        Ok(self.applied.read().unwrap().to_owned())
     }
 
-    fn apply(&mut self, migration: &Migration) -> impl Future<Output = Result<(), Self::Error>> {
+    async fn apply(&mut self, migration: &Migration) -> Result<(), Self::Error> {
         self.push(&format!("apply:{}", migration.version()));
 
-        let result = if self
+        if self
             .fail_apply_versions
             .read()
             .unwrap()
             .contains(&migration.version())
         {
-            Err(FakeBackendError::Apply)
-        } else {
-            Ok(())
-        };
+            return Err(FakeBackendError::Apply);
+        }
 
-        std::future::ready(result)
+        Ok(())
     }
 
-    fn record(&mut self, migration: &Migration) -> impl Future<Output = Result<(), Self::Error>> {
+    async fn record(&mut self, migration: &Migration) -> Result<(), Self::Error> {
         self.push(&format!("record:{}", migration.version()));
 
-        std::future::ready(Ok(()))
+        Ok(())
     }
 }
 

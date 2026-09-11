@@ -10,5 +10,5 @@ pub trait HttpClient {
     fn send(
         &self,
         request: Request<Bytes>,
-    ) -> impl Future<Output = Result<Response<Bytes>, Self::Error>>;
+    ) -> impl Future<Output = Result<Response<Bytes>, Self::Error>> + Send;
 }

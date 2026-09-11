@@ -4,7 +4,7 @@ pub mod smtp;
 pub trait EmailClient {
     type Error: std::error::Error;
 
-    fn send(&self, email: Email) -> impl Future<Output = Result<(), Self::Error>>;
+    fn send(&self, email: Email) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 #[derive(Debug, Clone)]
