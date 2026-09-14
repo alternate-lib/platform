@@ -8,6 +8,7 @@ use rust_embed::RustEmbed;
 use crate::QueueError;
 
 mod consumer;
+mod inspection;
 mod producer;
 
 #[derive(RustEmbed)]

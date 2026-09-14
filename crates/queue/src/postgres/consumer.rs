@@ -13,10 +13,10 @@ use crate::{
 
 #[derive(Debug)]
 pub struct PostgresConsumer {
-    pool: Pool,
-    config: PostgresConsumerConfig,
+    pub(super) pool: Pool,
+    pub(super) config: PostgresConsumerConfig,
     ready: Arc<Notify>,
-    scripts: PostgresScripts,
+    pub(super) scripts: PostgresScripts,
 }
 
 impl PostgresConsumer {
@@ -300,7 +300,7 @@ pub struct PostgresReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostgresConsumerConfig {
-    queue_key: String,
+    pub(super) queue_key: String,
     worker_id: String,
     visibility_micros: i64,
     reclaim_batch: i64,
@@ -435,10 +435,11 @@ pub enum PostgresConsumerConfigError {
 }
 
 #[derive(Clone, Debug)]
-struct PostgresScripts {
+pub(super) struct PostgresScripts {
     ack: &'static str,
     claim: &'static str,
     dead_letter: &'static str,
+    pub(super) inspect: &'static str,
     promote: &'static str,
     reclaim: &'static str,
     reject: &'static str,
@@ -451,6 +452,7 @@ impl PostgresScripts {
             ack: include_str!("../../sql/postgres/ack.sql"),
             claim: include_str!("../../sql/postgres/claim.sql"),
             dead_letter: include_str!("../../sql/postgres/dead_letter.sql"),
+            inspect: include_str!("../../sql/postgres/inspect.sql"),
             promote: include_str!("../../sql/postgres/promote.sql"),
             reclaim: include_str!("../../sql/postgres/reclaim.sql"),
             reject: include_str!("../../sql/postgres/reject.sql"),
@@ -459,7 +461,7 @@ impl PostgresScripts {
     }
 }
 
-fn attempts(value: i32) -> Result<usize, PostgresQueueError> {
+pub(super) fn attempts(value: i32) -> Result<usize, PostgresQueueError> {
     usize::try_from(value).map_err(|_| PostgresQueueError::InvalidAttemptLimit)
 }
 

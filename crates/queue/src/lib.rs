@@ -101,6 +101,21 @@ pub trait QueueScheduledPromotion: QueueConsumer {
     fn promote(&self) -> impl Future<Output = Result<usize, Self::Error>> + Send;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageState {
+    Ready,
+    Inflight,
+    Scheduled,
+    Dead,
+}
+
+#[derive(Debug, Clone)]
+pub struct MessageStatus {
+    pub id: String,
+    pub state: MessageState,
+    pub attempts: usize,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
     #[error("message ID is already in use")]
