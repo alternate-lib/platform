@@ -40,9 +40,6 @@ pub enum PostgresQueueError {
     #[error(transparent)]
     Queue(#[from] QueueError),
 
-    #[error("message attributes could not be decoded: {0}")]
-    Attributes(#[from] serde_json::Error),
-
     #[error("attempt limit must not overflow")]
     InvalidAttemptLimit,
 

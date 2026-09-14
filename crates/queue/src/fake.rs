@@ -68,7 +68,6 @@ struct FakeQueueState {
 struct Enqueued {
     id: String,
     payload: Vec<u8>,
-    attributes: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +92,6 @@ impl QueueProducer for FakeQueue {
         state.ready.push_back(Enqueued {
             id: id.clone(),
             payload: message.payload,
-            attributes: message.attributes,
         });
 
         Ok(id)
@@ -129,7 +127,6 @@ impl QueueConsumer for FakeQueue {
             id: enqueued.id,
             payload: enqueued.payload,
             attempts,
-            attributes: enqueued.attributes,
             receipt: FakeReceipt { token },
         }))
     }
@@ -262,7 +259,6 @@ impl QueueScheduled for FakeQueue {
             Enqueued {
                 id: id.clone(),
                 payload: message.payload,
-                attributes: message.attributes,
             },
         );
 

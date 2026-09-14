@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use deadpool_postgres::Pool;
 use tokio::{sync::Notify, time};
@@ -118,13 +118,11 @@ impl PostgresConsumer {
             .next()
             .map(|row| {
                 let id = row.get::<_, String>(0);
-                let attributes = serde_json::from_value::<BTreeMap<String, String>>(row.get(3))?;
 
                 Ok(QueueDelivery {
                     id: id.clone(),
                     payload: row.get(1),
                     attempts: attempts(row.get(2))?,
-                    attributes,
                     receipt: PostgresReceipt {
                         message_id: id,
                         lease_token: token,

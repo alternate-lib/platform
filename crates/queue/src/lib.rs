@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, future::Future, time::Duration};
+use std::{future::Future, time::Duration};
 
 use jiff::Timestamp;
 
@@ -32,7 +32,6 @@ pub trait QueueConsumer {
 pub struct QueueMessage {
     pub id: Option<String>,
     pub payload: Vec<u8>,
-    pub attributes: BTreeMap<String, String>,
 }
 
 impl QueueMessage {
@@ -40,8 +39,13 @@ impl QueueMessage {
         Self {
             id: None,
             payload: payload.into(),
-            attributes: BTreeMap::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 }
 
@@ -50,7 +54,6 @@ pub struct QueueDelivery<R> {
     pub id: String,
     pub payload: Vec<u8>,
     pub attempts: usize,
-    pub attributes: BTreeMap<String, String>,
     pub receipt: R,
 }
 

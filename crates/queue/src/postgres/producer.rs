@@ -31,14 +31,10 @@ impl QueueProducer for PostgresProducer {
         let client = self.pool.get().await?;
 
         let id = message.id.unwrap_or_else(|| Uuid::now_v7().to_string());
-        let attributes = serde_json::to_value(message.attributes)?;
 
         let stmt = client.prepare_cached(self.scripts.send).await?;
         client
-            .execute(
-                &stmt,
-                &[&id, &self.config.queue_key, &message.payload, &attributes],
-            )
+            .execute(&stmt, &[&id, &self.config.queue_key, &message.payload])
             .await
             .map_err(map_insert_error)?;
 
@@ -55,19 +51,12 @@ impl QueueScheduled for PostgresProducer {
         let client = self.pool.get().await?;
 
         let id = message.id.unwrap_or_else(|| Uuid::now_v7().to_string());
-        let attributes = serde_json::to_value(message.attributes)?;
 
         let stmt = client.prepare_cached(self.scripts.schedule).await?;
         client
             .execute(
                 &stmt,
-                &[
-                    &id,
-                    &self.config.queue_key,
-                    &message.payload,
-                    &attributes,
-                    &run_at,
-                ],
+                &[&id, &self.config.queue_key, &message.payload, &run_at],
             )
             .await
             .map_err(map_insert_error)?;

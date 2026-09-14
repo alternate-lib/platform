@@ -16,6 +16,5 @@ SET state = 'inflight',
 FROM claimed
 WHERE qm.id = claimed.id
 RETURNING qm.id,
-  qm.message,
-  qm.attempts,
-  qm.attributes
+  qm.payload,
+  qm.attempts

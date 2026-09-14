@@ -77,7 +77,6 @@ dependencies = [
  "deadpool-postgres",
  "jiff",
  "rust-embed",
- "serde_json",
  "thiserror",
  "tokio",
  "tokio-postgres",
@@ -2133,8 +2132,6 @@ dependencies = [
  "fallible-iterator 0.2.0",
  "jiff",
  "postgres-protocol",
- "serde_core",
- "serde_json",
 ]
 
 [[package]]

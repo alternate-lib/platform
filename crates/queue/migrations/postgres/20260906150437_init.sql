@@ -3,8 +3,7 @@ CREATE SCHEMA IF NOT EXISTS alternate;
 CREATE TABLE alternate.queue_messages (
     id TEXT PRIMARY KEY,
     queue_key TEXT NOT NULL,
-    message BYTEA NOT NULL,
-    attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload BYTEA NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     state TEXT NOT NULL,
     run_at TIMESTAMPTZ NOT NULL DEFAULT now(),
