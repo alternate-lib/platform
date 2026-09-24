@@ -23,16 +23,23 @@ impl SmtpClient {
         tracing::instrument(skip(config), fields(host = config.host, username = config.username, from_address = config.from_address), err(Debug))
     )]
     pub fn create(config: SmtpClientConfig) -> Result<Self, SmtpClientError> {
-        let mut builder = if config.use_tls {
-            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)?
-        } else {
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
+        let mut builder = match config.security {
+            SmtpSecurity::ImplicitTls => AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)?,
+            SmtpSecurity::StartTls => {
+                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)?
+            }
+            SmtpSecurity::Plaintext => {
+                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
+            }
         };
+        if let Some(port) = config.port {
+            builder = builder.port(port);
+        }
         if !config.username.is_empty() {
             builder = builder.credentials(Credentials::new(config.username, config.password));
         }
 
-        let transport = builder.port(config.port).build();
+        let transport = builder.build();
 
         let from = config.from_address.parse::<Mailbox>()?;
 
@@ -60,11 +67,19 @@ impl EmailClient for SmtpClient {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SmtpSecurity {
+    #[default]
+    ImplicitTls,
+    StartTls,
+    Plaintext,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmtpClientConfig {
     host: String,
-    port: u16,
-    use_tls: bool,
+    port: Option<u16>,
+    security: SmtpSecurity,
     username: String,
     password: String,
     from_address: String,
@@ -80,7 +95,7 @@ impl SmtpClientConfig {
 pub struct SmtpClientConfigBuilder {
     host: Option<String>,
     port: Option<u16>,
-    use_tls: Option<bool>,
+    security: SmtpSecurity,
     username: Option<String>,
     password: Option<String>,
     from_address: Option<String>,
@@ -104,8 +119,8 @@ impl SmtpClientConfigBuilder {
     }
 
     #[must_use]
-    pub fn use_tls(mut self, use_tls: bool) -> Self {
-        self.use_tls = Some(use_tls);
+    pub fn security(mut self, security: SmtpSecurity) -> Self {
+        self.security = security;
         self
     }
 
@@ -130,8 +145,8 @@ impl SmtpClientConfigBuilder {
     pub fn build(self) -> Result<SmtpClientConfig, SmtpConfigError> {
         Ok(SmtpClientConfig {
             host: self.host.ok_or(SmtpConfigError::MissingField("host"))?,
-            port: self.port.unwrap_or(25),
-            use_tls: self.use_tls.unwrap_or(true),
+            port: self.port,
+            security: self.security,
             username: self.username.unwrap_or_default(),
             password: self.password.unwrap_or_default(),
             from_address: self
@@ -172,8 +187,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(config.host, "smtp.example.test");
-        assert_eq!(config.port, 25);
-        assert!(config.use_tls);
+        assert_eq!(config.port, None);
+        assert_eq!(config.security, SmtpSecurity::ImplicitTls);
         assert_eq!(config.username, "");
         assert_eq!(config.password, "");
         assert_eq!(config.from_address, "sender@example.test");
@@ -184,7 +199,7 @@ mod tests {
         let config = SmtpClientConfig::builder()
             .host("smtp.example.test")
             .port(2525)
-            .use_tls(false)
+            .security(SmtpSecurity::Plaintext)
             .username("user")
             .password("secret")
             .from_address("sender@example.test")
@@ -192,11 +207,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(config.host, "smtp.example.test");
-        assert_eq!(config.port, 2525);
-        assert!(!config.use_tls);
+        assert_eq!(config.port, Some(2525));
+        assert_eq!(config.security, SmtpSecurity::Plaintext);
         assert_eq!(config.username, "user");
         assert_eq!(config.password, "secret");
         assert_eq!(config.from_address, "sender@example.test");
+    }
+
+    #[test]
+    fn builder_accepts_starttls_without_a_port_override() {
+        let config = SmtpClientConfig::builder()
+            .host("smtp.example.test")
+            .security(SmtpSecurity::StartTls)
+            .from_address("sender@example.test")
+            .build()
+            .unwrap();
+
+        assert_eq!(config.security, SmtpSecurity::StartTls);
+        assert_eq!(config.port, None);
     }
 
     #[test]

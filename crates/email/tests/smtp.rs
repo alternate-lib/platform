@@ -2,7 +2,7 @@
 
 use alternate_email::{
     Email, EmailClient,
-    smtp::{SmtpClient, SmtpClientConfig},
+    smtp::{SmtpClient, SmtpClientConfig, SmtpSecurity},
 };
 use testcontainers::{ContainerAsync, GenericImage, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::time::{self, Duration};
@@ -102,7 +102,7 @@ async fn sends_email_to_smtp_server() -> Result<(), Box<dyn std::error::Error>> 
         SmtpClientConfig::builder()
             .host(mailpit_server.host)
             .port(mailpit_server.smtp_port)
-            .use_tls(false)
+            .security(SmtpSecurity::Plaintext)
             .from_address("sender@example.test")
             .build()?,
     )?;
